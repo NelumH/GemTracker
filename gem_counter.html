@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Treasure Box Gem Counter - Mining Club</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --accent: #0f3460;
+    --gold: #e94560;
+    --text: #eee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 10px;
+    text-align: center;
+  }
+  h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
+  h2 { font-size: 1.2em; margin: 15px 0 5px; }
+  .container { max-width: 500px; margin: 0 auto; }
+  video, canvas { max-width: 100%; border-radius: 12px; border: 3px solid #ffd700; background: #000; }
+  button {
+    background: #ffd700;
+    color: #1a1a2e;
+    border: none;
+    padding: 14px 24px;
+    font-size: 1.1em;
+    font-weight: bold;
+    border-radius: 30px;
+    margin: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; }
+  .results {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 15px;
+    margin: 15px 0;
+    display: none;
+  }
+  .gem-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 1.1em; }
+  .gem-color { width: 24px; height: 24px; border-radius: 50%; display: inline-block; margin-right: 8px; border: 2px solid #fff; }
+  .total { font-size: 1.6em; color: #ffd700; font-weight: bold; margin-top: 10px; }
+  .loading { color: #ffd700; font-style: italic; }
+  .instructions { background: #0f3460; padding: 12px; border-radius: 12px; font-size: 0.95em; margin: 10px 0; }
+  .sliders { text-align: left; font-size: 0.9em; margin: 10px 0; }
+  label { display: block; margin: 6px 0; }
+  input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>⛏️ Treasure Box Gem Counter 💎</h1>
+  <p class="instructions">
+    Point the camera at the <strong>inside</strong> of the treasure box (good lighting helps!). 
+    Spread the gems out a bit so they don't touch too much. Tap <strong>Capture & Count</strong>.
+  </p>
+
+  <video id="video" autoplay playsinline muted></video>
+  <br>
+  <button id="startBtn">Start Camera</button>
+  <button id="captureBtn" disabled>📸 Capture & Count</button>
+  <button id="retryBtn" style="display:none;">🔄 Try Again</button>
+  <p style="margin:10px 0; font-size:0.9em;">Or take a photo with your normal camera app and upload it:</p>
+  <input type="file" id="fileInput" accept="image/*" capture="environment" style="margin:8px;">
+
+  <canvas id="canvas" style="display:none;"></canvas>
+  <canvas id="outputCanvas" style="display:none; max-width:100%; border-radius:12px; margin-top:10px;"></canvas>
+
+  <div id="status" class="loading" style="display:none;">Loading OpenCV... (first time may take a few seconds)</div>
+
+  <div id="results" class="results">
+    <h2>Gems Found!</h2>
+    <div id="gemList"></div>
+    <div class="total" id="totalPoints">Total: 0 points</div>
+    <p style="font-size:0.85em; opacity:0.8;">Counts are approximate. Adjust if needed and recount, or verify manually.</p>
+  </div>
+
+  <div class="sliders" id="controls" style="display:none;">
+    <h3>Fine-tune (advanced)</h3>
+    <label>Min gem size (pixels): <input type="range" id="minArea" min="50" max="2000" value="200"></label>
+    <label>Color sensitivity: <input type="range" id="sensitivity" min="20" max="100" value="60"></label>
+    <button id="reprocessBtn">Re-count with new settings</button>
+  </div>
+</div>
+
+<script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
+<script>
+let cvReady = false;
+let stream = null;
+let capturedImageData = null;
+
+function onOpenCvReady() {
+  cvReady = true;
+  document.getElementById('status').style.display = 'none';
+  console.log('OpenCV.js ready');
+}
+
+document.getElementById('startBtn').onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    document.getElementById('captureBtn').disabled = false;
+    document.getElementById('startBtn').textContent = 'Camera On';
+    document.getElementById('startBtn').disabled = true;
+  } catch (err) {
+    alert('Camera access denied or not available. Please allow camera and use HTTPS or localhost. Error: ' + err.message);
+  }
+};
+
+document.getElementById('captureBtn').onclick = () => {
+  if (!cvReady) {
+    document.getElementById('status').style.display = 'block';
+    document.getElementById('status').textContent = 'Still loading OpenCV... please wait a moment and try again.';
+    return;
+  }
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processImage();
+};
+
+document.getElementById('fileInput').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (cvReady) {
+      processImage();
+    } else {
+      document.getElementById('status').style.display = 'block';
+      document.getElementById('status').textContent = 'OpenCV still loading... try again in a few seconds.';
+    }
+  };
+  img.src = URL.createObjectURL(file);
+};
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('outputCanvas').style.display = 'none';
+  document.getElementById('controls').style.display = 'none';
+  document.getElementById('retryBtn').style.display = 'none';
+  document.getElementById('video').style.display = 'block';
+  document.getElementById('captureBtn').style.display = 'inline-block';
+};
+
+document.getElementById('reprocessBtn').onclick = processImage;
+
+function processImage() {
+  if (!capturedImageData || !cvReady) return;
+  document.getElementById('status').style.display = 'block';
+  document.getElementById('status').textContent = 'Analyzing gems...';
+
+  // Resize for speed
+  const src = cv.matFromImageData(capturedImageData);
+  const dsize = new cv.Size(640, Math.round(640 * src.rows / src.cols));
+  const resized = new cv.Mat();
+  cv.resize(src, resized, dsize, 0, 0, cv.INTER_AREA);
+
+  const hsv = new cv.Mat();
+  cv.cvtColor(resized, hsv, cv.COLOR_RGBA2RGB);
+  cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+
+  const minArea = parseInt(document.getElementById('minArea').value) || 200;
+  const sens = parseInt(document.getElementById('sensitivity').value) || 60;
+  const sMin = Math.max(40, 100 - sens);
+  const vMin = Math.max(40, 100 - sens);
+
+  // Color definitions: name, points, lower HSV, upper HSV, color for drawing
+  const colors = [
+    { name: 'Orange', points: 5, lower: [5, sMin, vMin], upper: [25, 255, 255], draw: [255, 165, 0, 255], css: '#ffa500' },
+    { name: 'Green', points: 10, lower: [35, sMin, vMin], upper: [85, 255, 255], draw: [0, 255, 0, 255], css: '#00cc00' },
+    { name: 'Blue', points: 15, lower: [90, sMin, vMin], upper: [130, 255, 255], draw: [0, 100, 255, 255], css: '#0066ff' },
+    { name: 'Red', points: 20, lower: [0, sMin, vMin], upper: [10, 255, 255], draw: [255, 0, 0, 255], css: '#ff3333' },
+    { name: 'Red2', points: 20, lower: [170, sMin, vMin], upper: [179, 255, 255], draw: [255, 0, 0, 255], css: '#ff3333', isRed: true },
+    { name: 'Diamond', points: 100, lower: [0, 0, 180], upper: [179, 40, 255], draw: [200, 230, 255, 255], css: '#e0f0ff' }
+  ];
+
+  const counts = { Orange: 0, Green: 0, Blue: 0, Red: 0, Diamond: 0 };
+  const output = resized.clone();
+
+  colors.forEach(col => {
+    const mask = new cv.Mat();
+    const low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), col.lower);
+    const high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), col.upper);
+    cv.inRange(hsv, low, high, mask);
+
+    // Morphology to clean noise
+    const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+    cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
+    cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel);
+
+    const labels = new cv.Mat();
+    const stats = new cv.Mat();
+    const centroids = new cv.Mat();
+    const num = cv.connectedComponentsWithStats(mask, labels, stats, centroids, 8);
+
+    for (let i = 1; i < num; i++) {
+      const area = stats.intPtr(i)[4];
+      if (area >= minArea && area < 15000) { // ignore huge blobs
+        const x = stats.intPtr(i)[0];
+        const y = stats.intPtr(i)[1];
+        const w = stats.intPtr(i)[2];
+        const h = stats.intPtr(i)[3];
+        // Draw bounding box
+        cv.rectangle(output, new cv.Point(x, y), new cv.Point(x + w, y + h), col.draw, 2);
+        const label = col.name === 'Red2' ? 'Red' : col.name;
+        counts[label] = (counts[label] || 0) + 1;
+      }
+    }
+
+    mask.delete(); low.delete(); high.delete(); labels.delete(); stats.delete(); centroids.delete(); kernel.delete();
+  });
+
+  // Show output
+  const outCanvas = document.getElementById('outputCanvas');
+  outCanvas.width = output.cols;
+  outCanvas.height = output.rows;
+  cv.imshow(outCanvas, output);
+  outCanvas.style.display = 'block';
+
+  // Results
+  let total = 0;
+  let html = '';
+  const displayOrder = [
+    { key: 'Orange', pts: 5, css: '#ffa500' },
+    { key: 'Green', pts: 10, css: '#00cc00' },
+    { key: 'Blue', pts: 15, css: '#0066ff' },
+    { key: 'Red', pts: 20, css: '#ff3333' },
+    { key: 'Diamond', pts: 100, css: '#e0f0ff' }
+  ];
+  displayOrder.forEach(item => {
+    const c = counts[item.key] || 0;
+    const pts = c * item.pts;
+    total += pts;
+    html += `<div class="gem-row"><span><span class="gem-color" style="background:${item.css}"></span>${item.key}</span><span>${c} × ${item.pts} = ${pts}</span></div>`;
+  });
+  document.getElementById('gemList').innerHTML = html;
+  document.getElementById('totalPoints').textContent = `Total: ${total} points`;
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('controls').style.display = 'block';
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('video').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retryBtn').style.display = 'inline-block';
+
+  // Cleanup
+  src.delete(); resized.delete(); hsv.delete(); output.delete();
+}
+</script>
+</body>
+</html>
