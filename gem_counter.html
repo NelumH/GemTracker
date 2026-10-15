@@ -121,6 +121,7 @@
 
 <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
 <script>
+var lastHsv = null;
 // ========== Kid Database (localStorage - private to this device) ==========
 const STORAGE_KEY = 'miningClubKids_v1';
 // Level thresholds (XP required to reach that level). Easy to customize.
@@ -468,7 +469,6 @@ function processImageInner() {
 }
 
 // Tap the result image to read the color (H,S,V) at that spot, for tuning
-let lastHsv = null;
 document.getElementById('outputCanvas').addEventListener('click', (e) => {
   if (!lastHsv) return;
   const c = e.target, r = c.getBoundingClientRect();
