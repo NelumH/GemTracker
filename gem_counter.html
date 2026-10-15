@@ -1,108 +1,262 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta name="robots" content="noindex, nofollow">
-<title>Treasure Box Gem Counter - Mining Club</title>
-<style>
-  :root {
-    --bg: #1a1a2e;
-    --card: #16213e;
-    --accent: #0f3460;
-    --gold: #e94560;
-    --text: #eee;
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    margin: 0;
-    padding: 10px;
-    text-align: center;
-  }
-  h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
-  h2 { font-size: 1.2em; margin: 15px 0 5px; }
-  .container { max-width: 500px; margin: 0 auto; }
-  video, canvas { max-width: 100%; border-radius: 12px; border: 3px solid #ffd700; background: #000; }
-  button {
-    background: #ffd700;
-    color: #1a1a2e;
-    border: none;
-    padding: 14px 24px;
-    font-size: 1.1em;
-    font-weight: bold;
-    border-radius: 30px;
-    margin: 8px;
-    cursor: pointer;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-  }
-  button:active { transform: scale(0.97); }
-  button:disabled { opacity: 0.5; }
-  .results {
-    background: var(--card);
-    border-radius: 16px;
-    padding: 15px;
-    margin: 15px 0;
-    display: none;
-  }
-  .gem-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 1.1em; }
-  .gem-color { width: 24px; height: 24px; border-radius: 50%; display: inline-block; margin-right: 8px; border: 2px solid #fff; }
-  .total { font-size: 1.6em; color: #ffd700; font-weight: bold; margin-top: 10px; }
-  .loading { color: #ffd700; font-style: italic; }
-  .instructions { background: #0f3460; padding: 12px; border-radius: 12px; font-size: 0.95em; margin: 10px 0; }
-  .sliders { text-align: left; font-size: 0.9em; margin: 10px 0; }
-  label { display: block; margin: 6px 0; }
-  input[type=range] { width: 100%; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Treasure Box Gem Counter - Kids Rock Club</title>
+    <style>
+      :root {
+        --bg: #1a1a2e;
+        --card: #16213e;
+        --accent: #0f3460;
+        --gold: #e94560;
+        --text: #eee;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        margin: 0;
+        padding: 10px;
+        text-align: center;
+      }
+      h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
+      h2, h3 { font-size: 1.2em; margin: 15px 0 5px; }
+      .container { max-width: 500px; margin: 0 auto; }
+      video, canvas { max-width: 100%; border-radius: 12px; border: 3px solid #ffd700; background: #000; }
+      button {
+        background: #ffd700;
+        color: #1a1a2e;
+        border: none;
+        padding: 14px 24px;
+        font-size: 1.1em;
+        font-weight: bold;
+        border-radius: 30px;
+        margin: 8px;
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      }
+      button:active { transform: scale(0.97); }
+      button:disabled { opacity: 0.5; }
+      .card {
+        background: var(--card);
+        border-radius: 16px;
+        padding: 15px;
+        margin: 15px 0;
+      }
+      .gem-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 1.1em; }
+      .gem-color { width: 24px; height: 24px; border-radius: 50%; display: inline-block; margin-right: 8px; border: 2px solid #fff; }
+      .total { font-size: 1.6em; color: #ffd700; font-weight: bold; margin-top: 10px; }
+      .loading { color: #ffd700; font-style: italic; }
+      .instructions { background: #0f3460; padding: 12px; border-radius: 12px; font-size: 0.95em; margin: 10px 0; }
+      input, select { padding: 8px; border-radius: 8px; border: none; margin: 4px; font-size: 1em; }
+      .level-up {
+          background: linear-gradient(45deg, #ffd700, #ff6b6b);
+          color: #1a1a2e;
+          padding: 15px;
+          border-radius: 12px;
+          font-weight: bold;
+          margin: 10px 0;
+          animation: pulse 1s infinite;
+      }
+      @keyframes pulse { 50% { transform: scale(1.05); } }
+      .hidden (display: none !important; )
+    </style>
 </head>
 <body>
-<div class="container">
-  <h1>⛏️ Treasure Box Gem Counter 💎</h1>
-  <p class="instructions">
-    Point the camera at the <strong>inside</strong> of the treasure box (good lighting helps!). 
-    Spread the gems out a bit so they don't touch too much. Tap <strong>Capture & Count</strong>.
-  </p>
+  <div class="container">
+    <h1>⛏️ Kids Rock Club Gem Counter 💎</h1>
 
-  <video id="video" autoplay playsinline muted></video>
-  <br>
-  <button id="startBtn">Start Camera</button>
-  <button id="captureBtn" disabled>📸 Capture & Count</button>
-  <button id="retryBtn" style="display:none;">🔄 Try Again</button>
-  <p style="margin:10px 0; font-size:0.9em;">Or take a photo with your normal camera app and upload it:</p>
-  <input type="file" id="fileInput" accept="image/*" capture="environment" style="margin:8px;">
+    <!-- Kid Management -->
+    <div class="card" id="kidSection">
+      <h3>Kids (private on this device)</h3>
+      <select id="kidSelect"><option value="">-- Select Kid --</option></select>
+      <button id="addKidBtn">+ Add Kid</button>
+      <div id="kidStats" class="hidden">
+        <div class="stat-row"><span>Level:</span> <strong id="statLevel">1</strong></div>
+        <div class="stat-row"><span>XP Earned:</span> <strong id="statEarned">0</strong></div>
+        <div class="stat-row"><span>XP Spent:</span> <strong id="statSpent">0</strong></div>
+        <div class="stat-row"><span>XP Left:</span> <strong id="statLeft">0</strong></div>
+        <button id="spendBtn">Spend XP</button>
+      </div>
+    </div>
+    
+    <p class="instructions">
+      Select a kid, then capture the treasure box. Points become XP. Level updates automatically.
+      Point the camera at the <strong>inside</strong> of the treasure box (good lighting helps!). 
+      Spread the gems out a bit so they don't touch too much. Tap <strong>Capture & Count</strong>.
+    </p>
 
-  <canvas id="canvas" style="display:none;"></canvas>
-  <canvas id="outputCanvas" style="display:none; max-width:100%; border-radius:12px; margin-top:10px;"></canvas>
+    <video id="video" autoplay playsinline muted></video>
+    <br>
+    <button id="startBtn">Start Camera</button>
+    <button id="captureBtn" disabled>📸 Capture & Count</button>
+    <button id="retryBtn" class="hidden">🔄 New Photo</button>
+    <p style="margin:10px 0; font-size:0.9em;">Or take a photo with your normal camera app and upload it:</p>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" style="margin:8px;">
 
-  <div id="status" class="loading" style="display:none;">Loading OpenCV... (first time may take a few seconds)</div>
+    <canvas id="canvas" class="hidden"></canvas>
+    <canvas id="outputCanvas" class="hidden" style="max-width:100%; border-radius:12px; margin-top:10px;"></canvas>
 
-  <div id="results" class="results">
-    <h2>Gems Found!</h2>
-    <div id="gemList"></div>
-    <div class="total" id="totalPoints">Total: 0 points</div>
-    <p style="font-size:0.85em; opacity:0.8;">Counts are approximate. Adjust if needed and recount, or verify manually.</p>
+    <div id="status" class="loading hidden">Loading OpenCV... (first time may take a few seconds)</div>
+
+    <div id="results" class="card hidden">
+      <h2>Gems Found!</h2>
+      <div id="gemList"></div>
+      <div class="total" id="totalPoints">Total: 0 XP</div>
+      <p style="font-size:0.85em; opacity:0.8;">Approximate counts. Adjust and re-count if needed. - until code works reliably</p>
+    </div>
+
+    <div id="levelUpMsg" class="level-up hidden"></div>
+    
+    <div class="sliders card hidden" id="controls">
+      <h3>Fine-tune</h3>
+      <label>Min gem size (pixels): <input type="range" id="minArea" min="50" max="2000" value="200"></label>
+      <label>Sensitivity: <input type="range" id="sensitivity" min="20" max="100" value="60"></label>
+      <button id="reprocessBtn">Re-count</button>
+    </div>
   </div>
-
-  <div class="sliders" id="controls" style="display:none;">
-    <h3>Fine-tune (advanced)</h3>
-    <label>Min gem size (pixels): <input type="range" id="minArea" min="50" max="2000" value="200"></label>
-    <label>Color sensitivity: <input type="range" id="sensitivity" min="20" max="100" value="60"></label>
-    <button id="reprocessBtn">Re-count with new settings</button>
-  </div>
-</div>
 
 <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
 <script>
+// ========== Kid Database (localStorage - private to this device) ==========
+const STORAGE_KEY = 'miningClubKids_v1';
+// Level thresholds (XP required to reach that level). Easy to customize.
+const LEVEL_THRESHOLDS = [0, 50, 150, 300, 500, 750, 1050, 1400, 1800, 2250, 2750]; // Level 1 = 0 XP, Level 2 = 50, etc.
+
+let kids = [];
+let selectedKidId = null;
+let lastTotalXP = 0;
 let cvReady = false;
 let stream = null;
 let capturedImageData = null;
 
+function loadKids() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  kids = raw ? JSON.parse(raw) : [];
+  renderKidSelect();
+}
+
+function saveKids() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(kids));
+}
+
+function calculateLevel(xp) {
+  let level = 1;
+  for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {
+    if (xp >= LEVEL_THRESHOLDS[i]) level = i + 1;
+    else break;
+  }
+  return Math.min(level, LEVEL_THRESHOLDS.length);
+}
+
+function renderKidSelect() {
+  const sel = document.getElementById('kidSelect');
+  sel.innerHTML = '<option value="">-- Select Kid --</option>';
+  kids.forEach(k => {
+    const opt = document.createElement('option');
+    opt.value = k.id;
+    opt.textContent = k.name;
+    if (k.id === selectedKidId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  updateStatsDisplay();
+}
+
+function updateStatsDisplay() {
+  const statsDiv = document.getElementById('kidStats');
+  if (!selectedKidId) {
+    statsDiv.classList.add('hidden');
+    return;
+  }
+  const kid = kids.find(k => k.id === selectedKidId);
+  if (!kid) return;
+  document.getElementById('statLevel').textContent = kid.level;
+  document.getElementById('statEarned').textContent = kid.xpEarned;
+  document.getElementById('statSpent').textContent = kid.xpSpent;
+  document.getElementById('statLeft').textContent = kid.xpEarned - kid.xpSpent;
+  statsDiv.classList.remove('hidden');
+}
+
+function addKid() {
+  const name = prompt('Kid\'s first name (stored only on this device):');
+  if (!name || !name.trim()) return;
+  const newKid = {
+    id: Date.now().toString(),
+    name: name.trim(),
+    xpEarned: 0,
+    xpSpent: 0,
+    level: 1
+  };
+  kids.push(newKid);
+  selectedKidId = newKid.id;
+  saveKids();
+  renderKidSelect();
+}
+
+function selectKid(id) {
+  selectedKidId = id || null;
+  updateStatsDisplay();
+  // Update add button text if results visible
+  const btn = document.getElementById('addXpBtn');
+  if (btn && !btn.classList.contains('hidden')) {
+    const kid = kids.find(k => k.id === selectedKidId);
+    btn.textContent = kid ? `Add ${lastTotalXP} XP to ${kid.name}` : 'Add XP to Selected Kid';
+  }
+}
+
+document.getElementById('addKidBtn').onclick = addKid;
+document.getElementById('kidSelect').onchange = (e) => selectKid(e.target.value);
+
+document.getElementById('spendBtn').onclick = () => {
+  if (!selectedKidId) return;
+  const kid = kids.find(k => k.id === selectedKidId);
+  const amount = parseInt(prompt(`How much XP to spend for ${kid.name}? (Left: ${kid.xpEarned - kid.xpSpent})`));
+  if (!amount || amount <= 0) return;
+  if (amount > kid.xpEarned - kid.xpSpent) {
+    alert('Not enough XP left!');
+    return;
+  }
+  kid.xpSpent += amount;
+  saveKids();
+  updateStatsDisplay();
+  alert(`Spent ${amount} XP. Left: ${kid.xpEarned - kid.xpSpent}`);
+};
+
+function addXPToKid(amount) {
+  if (!selectedKidId) {
+    alert('Please select a kid first!');
+    return;
+  }
+  const kid = kids.find(k => k.id === selectedKidId);
+  const oldLevel = kid.level;
+  kid.xpEarned += amount;
+  const newLevel = calculateLevel(kid.xpEarned);
+  kid.level = newLevel;
+  saveKids();
+  updateStatsDisplay();
+
+  if (newLevel > oldLevel) {
+    const msg = `🎉 LEVEL UP! ${kid.name} reached Level ${newLevel}! 🎉`;
+    document.getElementById('levelUpMsg').textContent = msg;
+    document.getElementById('levelUpMsg').classList.remove('hidden');
+    setTimeout(() => document.getElementById('levelUpMsg').classList.add('hidden'), 5000);
+    // Browser notification if permitted
+    if (Notification.permission === 'granted') {
+      new Notification('Mining Club Level Up!', { body: msg, icon: '💎' });
+    }
+  } else {
+    alert(`Added ${amount} XP to ${kid.name}. Total: ${kid.xpEarned}`);
+  }
+}
+
+// ========== Camera & Counting (from previous version) ==========
 function onOpenCvReady() {
   cvReady = true;
-  document.getElementById('status').style.display = 'none';
-  console.log('OpenCV.js ready');
+  document.getElementById('status').classList.add('hidden');
+  console.log('OpenCV ready');
 }
 
 document.getElementById('startBtn').onclick = async () => {
@@ -111,29 +265,27 @@ document.getElementById('startBtn').onclick = async () => {
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
+    document.getElementById('video').srcObject = stream;
     document.getElementById('captureBtn').disabled = false;
     document.getElementById('startBtn').textContent = 'Camera On';
     document.getElementById('startBtn').disabled = true;
   } catch (err) {
-    alert('Camera access denied or not available. Please allow camera and use HTTPS or localhost. Error: ' + err.message);
+    alert('Camera error: ' + err.message + '. Try the upload option or use HTTPS.');
   }
 };
 
 document.getElementById('captureBtn').onclick = () => {
   if (!cvReady) {
-    document.getElementById('status').style.display = 'block';
-    document.getElementById('status').textContent = 'Still loading OpenCV... please wait a moment and try again.';
+    document.getElementById('status').classList.remove('hidden');
+    document.getElementById('status').textContent = 'OpenCV still loading...';
     return;
   }
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-  capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
   processImage();
 };
 
@@ -148,31 +300,30 @@ document.getElementById('fileInput').onchange = (e) => {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    if (cvReady) {
-      processImage();
-    } else {
-      document.getElementById('status').style.display = 'block';
-      document.getElementById('status').textContent = 'OpenCV still loading... try again in a few seconds.';
-    }
+    if (cvReady) processImage();
+    else alert('OpenCV still loading. Try again in a few seconds.');
   };
   img.src = URL.createObjectURL(file);
 };
-  document.getElementById('results').style.display = 'none';
-  document.getElementById('outputCanvas').style.display = 'none';
-  document.getElementById('controls').style.display = 'none';
-  document.getElementById('retryBtn').style.display = 'none';
+
+document.getElementById('retryBtn').onclick = () => {
+  document.getElementById('results').classList.add('hidden');
+  document.getElementById('outputCanvas').classList.add('hidden');
+  document.getElementById('controls').classList.add('hidden');
+  document.getElementById('retryBtn').classList.add('hidden');
   document.getElementById('video').style.display = 'block';
   document.getElementById('captureBtn').style.display = 'inline-block';
+  document.getElementById('addXpBtn').classList.add('hidden');
 };
 
 document.getElementById('reprocessBtn').onclick = processImage;
+document.getElementById('addXpBtn').onclick = () => addXPToKid(lastTotalXP);
 
 function processImage() {
   if (!capturedImageData || !cvReady) return;
-  document.getElementById('status').style.display = 'block';
-  document.getElementById('status').textContent = 'Analyzing gems...';
+  document.getElementById('status').classList.remove('hidden');
+  document.getElementById('status').textContent = 'Analyzing...';
 
-  // Resize for speed
   const src = cv.matFromImageData(capturedImageData);
   const dsize = new cv.Size(640, Math.round(640 * src.rows / src.cols));
   const resized = new cv.Mat();
@@ -187,13 +338,12 @@ function processImage() {
   const sMin = Math.max(40, 100 - sens);
   const vMin = Math.max(40, 100 - sens);
 
-  // Color definitions: name, points, lower HSV, upper HSV, color for drawing
   const colors = [
     { name: 'Orange', points: 5, lower: [5, sMin, vMin], upper: [25, 255, 255], draw: [255, 165, 0, 255], css: '#ffa500' },
     { name: 'Green', points: 10, lower: [35, sMin, vMin], upper: [85, 255, 255], draw: [0, 255, 0, 255], css: '#00cc00' },
     { name: 'Blue', points: 15, lower: [90, sMin, vMin], upper: [130, 255, 255], draw: [0, 100, 255, 255], css: '#0066ff' },
     { name: 'Red', points: 20, lower: [0, sMin, vMin], upper: [10, 255, 255], draw: [255, 0, 0, 255], css: '#ff3333' },
-    { name: 'Red2', points: 20, lower: [170, sMin, vMin], upper: [179, 255, 255], draw: [255, 0, 0, 255], css: '#ff3333', isRed: true },
+    { name: 'Red2', points: 20, lower: [170, sMin, vMin], upper: [179, 255, 255], draw: [255, 0, 0, 255], css: '#ff3333' },
     { name: 'Diamond', points: 100, lower: [0, 0, 180], upper: [179, 40, 255], draw: [200, 230, 255, 255], css: '#e0f0ff' }
   ];
 
@@ -205,42 +355,30 @@ function processImage() {
     const low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), col.lower);
     const high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), col.upper);
     cv.inRange(hsv, low, high, mask);
-
-    // Morphology to clean noise
     const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
     cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
     cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel);
 
-    const labels = new cv.Mat();
-    const stats = new cv.Mat();
-    const centroids = new cv.Mat();
+    const labels = new cv.Mat(), stats = new cv.Mat(), centroids = new cv.Mat();
     const num = cv.connectedComponentsWithStats(mask, labels, stats, centroids, 8);
-
     for (let i = 1; i < num; i++) {
       const area = stats.intPtr(i)[4];
-      if (area >= minArea && area < 15000) { // ignore huge blobs
-        const x = stats.intPtr(i)[0];
-        const y = stats.intPtr(i)[1];
-        const w = stats.intPtr(i)[2];
-        const h = stats.intPtr(i)[3];
-        // Draw bounding box
+      if (area >= minArea && area < 15000) {
+        const x = stats.intPtr(i)[0], y = stats.intPtr(i)[1], w = stats.intPtr(i)[2], h = stats.intPtr(i)[3];
         cv.rectangle(output, new cv.Point(x, y), new cv.Point(x + w, y + h), col.draw, 2);
         const label = col.name === 'Red2' ? 'Red' : col.name;
         counts[label] = (counts[label] || 0) + 1;
       }
     }
-
     mask.delete(); low.delete(); high.delete(); labels.delete(); stats.delete(); centroids.delete(); kernel.delete();
   });
 
-  // Show output
   const outCanvas = document.getElementById('outputCanvas');
   outCanvas.width = output.cols;
   outCanvas.height = output.rows;
   cv.imshow(outCanvas, output);
-  outCanvas.style.display = 'block';
+  outCanvas.classList.remove('hidden');
 
-  // Results
   let total = 0;
   let html = '';
   const displayOrder = [
@@ -256,17 +394,29 @@ function processImage() {
     total += pts;
     html += `<div class="gem-row"><span><span class="gem-color" style="background:${item.css}"></span>${item.key}</span><span>${c} × ${item.pts} = ${pts}</span></div>`;
   });
+  lastTotalXP = total;
   document.getElementById('gemList').innerHTML = html;
-  document.getElementById('totalPoints').textContent = `Total: ${total} points`;
-  document.getElementById('results').style.display = 'block';
-  document.getElementById('controls').style.display = 'block';
-  document.getElementById('status').style.display = 'none';
+  document.getElementById('totalPoints').textContent = `Total: ${total} XP`;
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('controls').classList.remove('hidden');
+  document.getElementById('status').classList.add('hidden');
   document.getElementById('video').style.display = 'none';
   document.getElementById('captureBtn').style.display = 'none';
-  document.getElementById('retryBtn').style.display = 'inline-block';
+  document.getElementById('retryBtn').classList.remove('hidden');
 
-  // Cleanup
+  const addBtn = document.getElementById('addXpBtn');
+  const kid = kids.find(k => k.id === selectedKidId);
+  addBtn.textContent = kid ? `Add ${total} XP to ${kid.name}` : 'Select a kid first, then Add XP';
+  addBtn.classList.remove('hidden');
+
   src.delete(); resized.delete(); hsv.delete(); output.delete();
+}
+
+// Init
+loadKids();
+// Request notification permission for level-ups
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
 }
 </script>
 </body>
