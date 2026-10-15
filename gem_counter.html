@@ -350,7 +350,7 @@ function processImage() {
     { name: 'Purple', points: 250, lower: [0, 0, 180], upper: [179, 40, 255], draw: [200, 230, 255, 255], css: '#6A0DAD' }
   ];
 
-  const counts = { Orange: 0, Green: 0, Blue: 0, Red: 0, Diamond: 0 };
+  const counts = { Orange: 0, Green: 0, Blue: 0, Red: 0, Diamond: 0 , Purple: 0};
   const output = resized.clone();
 
   colors.forEach(col => {
@@ -389,7 +389,10 @@ function processImage() {
     { key: 'Green', pts: 10, css: '#00cc00' },
     { key: 'Blue', pts: 15, css: '#0066ff' },
     { key: 'Red', pts: 20, css: '#ff3333' },
-    { key: 'Diamond', pts: 100, css: '#e0f0ff' }
+    { key: 'Diamond', pts: 100, css: '#e0f0ff' },
+    { key: 'Purple', pts: 250, css: '#800080' },
+    { key: 'Purple', pts: 250, css: '#9B59B6' },
+    { key: 'Purple', pts: 250, css: '#6A0DAD' }
   ];
   displayOrder.forEach(item => {
     const c = counts[item.key] || 0;
