@@ -320,6 +320,13 @@ document.getElementById('reprocessBtn').onclick = processImage;
 document.getElementById('addXpBtn').onclick = () => addXPToKid(lastTotalXP);
 
 function processImage() {
+  try { processImageInner(); } catch (e) {
+    const st = document.getElementById('status'); st.classList.remove('hidden');
+    st.textContent = 'Error: ' + (e && e.message ? e.message : e) + ' | ' + (e && e.stack ? String(e.stack).split('\n')[1] : '');
+    console.error(e);
+  }
+}
+function processImageInner() {
   if (!capturedImageData || !cvReady) return;
   document.getElementById('status').classList.remove('hidden');
   document.getElementById('status').textContent = 'Analyzing...';
@@ -348,7 +355,7 @@ function processImage() {
     // Test gems (points are placeholders so you can see them counted)
     { name: 'Purple',      points: 250, draw: [155, 89, 182, 255], css: '#9B59B6' },
     { name: 'Dark Pink',   points: 300, draw: [255, 20, 147, 255], css: '#d6246e' },
-    { name: 'Light Pink',  points: 350, draw: [255, 182, 193, 255], css: '#ffb6c1' },
+    { name: 'Light Pink',  points: 305, draw: [255, 182, 193, 255], css: '#ffb6c1' },
     { name: 'Diamond', points: 100, draw: [200, 230, 255, 255], css: '#e0f0ff' }
   ];
   const byName = {}; colors.forEach(c => byName[c.name] = c);
