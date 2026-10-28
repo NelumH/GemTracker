@@ -327,147 +327,269 @@ function processImage() {
     console.error(e);
   }
 }
-function processImageInner() {
-  if (!capturedImageData || !cvReady) return;
-  document.getElementById('status').classList.remove('hidden');
-  document.getElementById('status').textContent = 'Analyzing...';
+// ===== Gem detection core (mirrors gemcv.py exactly) =====
+const GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.22,
+  SMALL_FRAC:0.35, SOL_SMALL:0.75, SOL_MERGE:0.9, MAX_GEM:1.6, HUE_SAME:8, GRAD_MIN:30, GRAD_K:2.0, ROYAL_H:104,
+  R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75};
+const GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
-  const src = cv.matFromImageData(capturedImageData);
-  const dsize = new cv.Size(640, Math.round(640 * src.rows / src.cols));
-  const resized = new cv.Mat();
-  cv.resize(src, resized, dsize, 0, 0, cv.INTER_AREA);
-
-  const hsv = new cv.Mat();
-  cv.cvtColor(resized, hsv, cv.COLOR_RGBA2RGB);
-  cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-
-  const minArea = parseInt(document.getElementById('minArea').value) || 200;
-  const sens = parseInt(document.getElementById('sensitivity').value) || 60;
-  const sMin = Math.max(40, 100 - sens);
-  const vMin = Math.max(40, 100 - sens);
-
-  // Gem names and points. Detection works per gem: find everything that is not the dark mat,
-  // separate touching gems, then name each gem by its dominant color.
-  const colors = [
-    { name: 'Red',    points: 20,  draw: [255, 0, 0, 255], css: '#ff3333' },
-    { name: 'Orange', points: 5,   draw: [255, 165, 0, 255], css: '#ffa500' },
-    { name: 'Green',  points: 10,  draw: [0, 255, 0, 255], css: '#00cc00' },
-    { name: 'Blue',   points: 15,  draw: [0, 100, 255, 255], css: '#0066ff' },
-    // Test gems (points are placeholders so you can see them counted)
-    { name: 'Purple',      points: 250, draw: [155, 89, 182, 255], css: '#9B59B6' },
-    { name: 'Dark Pink',   points: 300, draw: [255, 20, 147, 255], css: '#d6246e' },
-    { name: 'Light Pink',  points: 305, draw: [255, 182, 193, 255], css: '#ffb6c1' },
-    { name: 'Diamond', points: 100, draw: [200, 230, 255, 255], css: '#e0f0ff' }
-  ];
-  const byName = {}; colors.forEach(c => byName[c.name] = c);
-
-  // Decide a gem's color name from its median hue/saturation (OpenCV H 0-179)
-  function classify(medH, medS, colorFrac) {
-    if (colorFrac < 0.3) return 'Diamond';
-    if (medH <= 4 || medH >= 172) return medS >= 150 ? 'Red' : 'Light Pink';
-    if (medH <= 24) return 'Orange';
-    if (medH >= 35 && medH <= 90) return 'Green';
-    if (medH >= 95 && medH <= 118) return 'Blue';
-    if (medH >= 119 && medH <= 152) return 'Purple';
-    if (medH >= 153) return medS >= 170 ? 'Dark Pink' : 'Light Pink';
-    return null;
+function detectGems(cv, srcRGBA, minArea, P) {
+  P = Object.assign({}, GEM_P, P || {});
+  const del = []; const keep = m => (del.push(m), m);
+  const ell = k => keep(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(k, k)));
+  const W = 640, Hh = Math.round(W * srcRGBA.rows / srcRGBA.cols);
+  const rgba = keep(new cv.Mat()); cv.resize(srcRGBA, rgba, new cv.Size(W, Hh), 0, 0, cv.INTER_AREA);
+  const rgb = keep(new cv.Mat()); cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
+  const bl = keep(new cv.Mat()); cv.medianBlur(rgb, bl, 5);
+  const hsv = keep(new cv.Mat()); cv.cvtColor(bl, hsv, cv.COLOR_RGB2HSV);
+  const rows = Hh, cols = W, N = rows * cols;
+  const hd = hsv.data, H = new Uint8Array(N), S = new Uint8Array(N), V = new Uint8Array(N);
+  for (let p = 0; p < N; p++) { H[p] = hd[3*p]; S[p] = hd[3*p+1]; V[p] = hd[3*p+2]; }
+  const fromArr = a => { const m = keep(new cv.Mat(rows, cols, cv.CV_8UC1)); m.data.set(a); return m; };
+  const toArr = m => Uint8Array.from(m.data);
+  const median = arr => { if (!arr.length) return 0; const a = Float64Array.from(arr).sort(); const n = a.length;
+    return n % 2 ? a[(n-1)/2] : (a[n/2-1] + a[n/2]) / 2; };
+  const percentile = (arr, q) => { const a = Float64Array.from(arr).sort(); const n = a.length; if (!n) return 0;
+    const pos = (n - 1) * q / 100, lo = Math.floor(pos), hi = Math.min(n-1, lo+1); return a[lo] + (a[hi]-a[lo]) * (pos - lo); };
+  const Vm = fromArr(V);
+  const g = keep(new cv.Mat()); cv.GaussianBlur(Vm, g, new cv.Size(7, 7), 0, 0, cv.BORDER_DEFAULT);
+  const gb = keep(new cv.Mat()); cv.blur(g, gb, new cv.Size(101, 101));
+  const diffM = keep(new cv.Mat()); cv.subtract(g, gb, diffM);
+  const G = toArr(g), DIFF = toArr(diffM);
+  // mat region
+  const vmed = median(V); const dark = new Uint8Array(N);
+  for (let p = 0; p < N; p++) dark[p] = V[p] <= vmed + 25 ? 255 : 0;
+  const darkM = fromArr(dark); cv.morphologyEx(darkM, darkM, cv.MORPH_CLOSE, ell(31));
+  const matM = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
+  { const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(darkM, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    let bi = -1, ba = -1; for (let i = 0; i < cs.size(); i++) { const a = cv.contourArea(cs.get(i)); if (a > ba) { ba = a; bi = i; } }
+    if (bi >= 0) { const hull = new cv.Mat(); cv.convexHull(cs.get(bi), hull, false, true); const hv = new cv.MatVector(); hv.push_back(hull);
+      cv.drawContours(matM, hv, 0, new cv.Scalar(255), -1); hv.delete(); hull.delete(); }
+    cs.delete(); hi.delete(); }
+  cv.erode(matM, matM, ell(9));
+  const MAT = toArr(matM); let matAny = false; for (let p = 0; p < N; p++) if (MAT[p]) { matAny = true; break; }
+  const onMat = (A) => { const o = []; for (let p = 0; p < N; p++) if (MAT[p]) o.push(A[p]); return o; };
+  const medS = matAny ? median(onMat(S)) : median(S);
+  const sthr = Math.max(P.S_COL, medS + P.S_OVER_MAT);
+  const colored = new Uint8Array(N); for (let p = 0; p < N; p++) colored[p] = (S[p] >= sthr && V[p] >= P.V_COL) ? 1 : 0;
+  const hcls = h => (h >= 8 && h <= 30) ? 1 : (h >= 31 && h <= 87) ? 2 : (h >= 88 && h <= 134) ? 3 : 4;
+  function clean(arr, kClose) {
+    const m = fromArr(arr); cv.morphologyEx(m, m, cv.MORPH_OPEN, ell(3)); cv.morphologyEx(m, m, cv.MORPH_CLOSE, ell(kClose));
+    const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const out = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
+    for (let i = 0; i < cs.size(); i++) { const c = cs.get(i); const a = cv.contourArea(c); if (a < minArea) continue;
+      const r = cv.boundingRect(c); const x = r.x, y = r.y, w = r.width, h = r.height;
+      if ((x <= 1 || y <= 1 || x + w >= cols - 1 || y + h >= rows - 1) && (Math.min(w,h) < 14 || Math.max(w,h) > 4*Math.min(w,h) || a/(w*h) < 0.25)) continue;
+      cv.drawContours(out, cs, i, new cv.Scalar(255), -1); }
+    cs.delete(); hi.delete(); return toArr(out);
   }
-
-  const counts = {};
-  colors.forEach(c => counts[c.name] = 0);
-  const output = resized.clone();
-
-  // 1) foreground = anything brighter or more colorful than the dark mat
-  const fgA = new cv.Mat(), fgB = new cv.Mat(), fg = new cv.Mat();
-  const mk = (lo, hi, dst) => {
-    const l = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [...lo, 0]);
-    const h = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [...hi, 255]);
-    cv.inRange(hsv, l, h, dst); l.delete(); h.delete();
-  };
-  mk([0, 0, 120], [179, 255, 255], fgA);
-  mk([0, 70, 50], [179, 255, 255], fgB);
-  cv.bitwise_or(fgA, fgB, fg);
-  fgA.delete(); fgB.delete();
-  const k3 = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(7, 7));
-  cv.morphologyEx(fg, fg, cv.MORPH_OPEN, k3);
-  cv.morphologyEx(fg, fg, cv.MORPH_CLOSE, k3);
-  // fill holes (glints inside a gem)
-  const cnts = new cv.MatVector(), hier = new cv.Mat();
-  cv.findContours(fg, cnts, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  fg.setTo(new cv.Scalar(0));
-  for (let i = 0; i < cnts.size(); i++) cv.drawContours(fg, cnts, i, new cv.Scalar(255), -1);
-  cnts.delete(); hier.delete(); k3.delete();
-
-  // 2) shrink so touching gems separate; each surviving blob is one gem
-  const erodeSize = 2 * Math.round(12 * hsv.cols / 640) + 1;
-  const kE = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(erodeSize, erodeSize));
-  const seeds = new cv.Mat();
-  cv.erode(fg, seeds, kE);
-  const labels = new cv.Mat(), stats = new cv.Mat(), centroids = new cv.Mat();
-  const num = cv.connectedComponentsWithStats(seeds, labels, stats, centroids, 8);
-  const hv = Array.from({length: num}, () => []);
-  const sv = Array.from({length: num}, () => []);
-  const tot = new Array(num).fill(0);
-  const lab = labels.data32S, d = hsv.data;
-  for (let p = 0, n = hsv.rows * hsv.cols; p < n; p++) {
-    const l = lab[p];
-    if (l > 0) {
-      tot[l]++;
-      const H = d[p * 3], S = d[p * 3 + 1], V = d[p * 3 + 2];
-      if (S >= 60 && V >= 60) { hv[l].push(H); sv[l].push(S); }
+  const masks = {}; const anycol = new Uint8Array(N);
+  const sels = [['Orange', h => hcls(h) === 1], ['Cool', h => (hcls(h) === 2 || hcls(h) === 3) && h < P.ROYAL_H],
+                ['Royal', h => hcls(h) === 3 && h >= P.ROYAL_H], ['Red', h => hcls(h) === 4]];
+  for (const [nm, sel] of sels) { const m = new Uint8Array(N);
+    for (let p = 0; p < N; p++) m[p] = (colored[p] && sel(H[p]) && MAT[p]) ? 255 : 0;
+    masks[nm] = clean(m, 7); for (let p = 0; p < N; p++) anycol[p] |= masks[nm][p]; }
+  const gr = keep(new cv.Mat()); cv.morphologyEx(Vm, gr, cv.MORPH_GRADIENT, ell(5)); cv.blur(gr, gr, new cv.Size(9, 9));
+  const GR = toArr(gr);
+  const gm = matAny ? median(onMat(GR)) : median(GR), vm = matAny ? median(onMat(G)) : median(G);
+  let clear = new Uint8Array(N); const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
+  for (let p = 0; p < N; p++) clear[p] = (S[p] < sthr && (DIFF[p] >= P.DIFF_CLEAR || (GR[p] >= gthr && G[p] >= vm + 8))) ? 255 : 0;
+  { const m = fromArr(clear); cv.morphologyEx(m, m, cv.MORPH_OPEN, ell(3)); cv.morphologyEx(m, m, cv.MORPH_CLOSE, ell(15));
+    const ac = fromArr(anycol); cv.dilate(ac, ac, ell(9)); const AC = toArr(ac); clear = toArr(m);
+    for (let p = 0; p < N; p++) if (AC[p] || !MAT[p]) clear[p] = 0; }
+  masks['Diamond'] = clean(clear, 9);
+  // connected components helper
+  function cc(arr) { const m = fromArr(arr); const lab = keep(new cv.Mat()); const n = cv.connectedComponents(m, lab, 8, cv.CV_32S);
+    return [n, Int32Array.from(lab.data32S)]; }
+  function distT(arr) { const m = fromArr(arr); const d = keep(new cv.Mat()); cv.distanceTransform(m, d, cv.DIST_L2, 5); return Float32Array.from(d.data32F); }
+  // typical radius
+  const mx = [];
+  for (const nm of Object.keys(masks)) { const d = distT(masks[nm]); const [n, lab] = cc(masks[nm]); const best = new Float64Array(n);
+    for (let p = 0; p < N; p++) if (lab[p] > 0 && d[p] > best[lab[p]]) best[lab[p]] = d[p];
+    for (let i = 1; i < n; i++) mx.push(best[i]); }
+  const R = mx.length ? percentile(mx, P.R_PCT) : 20.0;
+  // bimodal Cool split
+  { const cm = masks['Cool']; const [n, lab] = cc(cm);
+    const hw = new Float32Array(N), ww = new Float32Array(N); for (let p = 0; p < N; p++) { hw[p] = colored[p] ? H[p] : 0; ww[p] = colored[p]; }
+    const hwM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, hw)), wwM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, ww));
+    cv.blur(hwM, hwM, new cv.Size(9, 9)); cv.blur(wwM, wwM, new cv.Size(9, 9));
+    const HB = hwM.data32F, WB = wwM.data32F; const Hs = new Float32Array(N); for (let p = 0; p < N; p++) Hs[p] = HB[p] / Math.max(WB[p], 1e-3);
+    const gpart = new Uint8Array(N), apart = new Uint8Array(N);
+    for (let i = 1; i < n; i++) {
+      let cnt = 0, ng = 0, na = 0; for (let p = 0; p < N; p++) if (lab[p] === i && colored[p]) { cnt++; if (H[p] <= P.GB_SPLIT) ng++; if (H[p] >= P.GB_SPLIT + 4) na++; }
+      if (!cnt) continue;
+      if (ng / cnt >= P.BIMOD && na / cnt >= P.BIMOD) {
+        const gA = new Uint8Array(N), aA = new Uint8Array(N);
+        for (let p = 0; p < N; p++) if (lab[p] === i) { if (Hs[p] <= P.GB_SPLIT + 2) gA[p] = 255; else aA[p] = 255; }
+        const gM = fromArr(gA), aM = fromArr(aA); cv.morphologyEx(gM, gM, cv.MORPH_OPEN, ell(7)); cv.morphologyEx(aM, aM, cv.MORPH_OPEN, ell(7));
+        let sg = 0, sa = 0; const g2 = toArr(gM), a2 = toArr(aM); for (let p = 0; p < N; p++) { if (g2[p]) sg++; if (a2[p]) sa++; }
+        const lim = P.BIMOD_A * Math.PI * R * R;
+        if (sg >= lim && sa >= lim) {
+          for (let p = 0; p < N; p++) if (lab[p] === i) cm[p] = 0;
+          for (const [part, dst] of [[clean(g2, 7), gpart], [clean(a2, 7), apart]]) {
+            const pm = fromArr(part); const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(pm, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            for (let k = 0; k < cs.size(); k++) { const t = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1)); const hull = new cv.Mat(); cv.convexHull(cs.get(k), hull, false, true);
+              const hv = new cv.MatVector(); hv.push_back(hull); cv.drawContours(t, hv, 0, new cv.Scalar(255), -1); hv.delete(); hull.delete();
+              const T = t.data; for (let p = 0; p < N; p++) if (T[p] && lab[p] === i && !dst[p]) dst[p] = 255; }
+            cs.delete(); hi.delete(); }
+        }
+      }
+    }
+    masks['CoolG'] = gpart; masks['CoolA'] = apart; }
+  // split by distance peaks
+  function split(arr) {
+    const dist = distT(arr);
+    const dM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, dist)); const dil = keep(new cv.Mat());
+    const ks = Math.max(3, Math.trunc(R * 0.9) | 1); cv.dilate(dM, dil, ell(ks)); const DL = dil.data32F;
+    const pk = new Uint8Array(N); for (let p = 0; p < N; p++) pk[p] = (dist[p] >= DL[p] - 0.5 && dist[p] >= P.PEAK_FRAC * R) ? 255 : 0;
+    const pkM = fromArr(pk); const pl = keep(new cv.Mat()), st = keep(new cv.Mat()), ce = keep(new cv.Mat());
+    const pn = cv.connectedComponentsWithStats(pkM, pl, st, ce, 8, cv.CV_32S); const PL = pl.data32S;
+    const pmax = new Float64Array(pn); for (let p = 0; p < N; p++) if (PL[p] > 0 && dist[p] > pmax[PL[p]]) pmax[PL[p]] = dist[p];
+    const pts = []; for (let i = 1; i < pn; i++) pts.push([ce.data64F[2*i], ce.data64F[2*i+1], pmax[i]]);
+    const nP = pts.length;
+    const lineMin = (i, j) => { const [x1,y1,d1] = pts[i], [x2,y2,d2] = pts[j]; const L = Math.hypot(x2-x1, y2-y1);
+      if (L > 1.6 * (d1 + d2)) return null; const m = Math.trunc(L) + 2; let mn = Infinity;
+      for (let k = 0; k < m; k++) { const t = m > 1 ? k / (m - 1) : 0; const x = Math.round(x1 + (x2-x1)*t), y = Math.round(y1 + (y2-y1)*t); mn = Math.min(mn, dist[y*cols + x]); }
+      return mn; };
+    const Q = []; for (let i = 0; i < nP; i++) { Q.push([]); for (let j = 0; j < nP; j++) { if (i === j) { Q[i].push(1); continue; }
+      const mn = lineMin(i, j); Q[i].push(mn === null ? 0 : mn / Math.max(pts[i][2], pts[j][2])); } }
+    const gid = [...Array(nP).keys()];
+    const pairs = []; for (let i = 0; i < nP; i++) for (let j = i+1; j < nP; j++) if (Q[i][j] >= P.NECK) pairs.push([Q[i][j], i, j]);
+    pairs.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+    for (const [, i, j] of pairs) { const gi = gid[i], gj = gid[j]; if (gi === gj) continue;
+      const A = [], B = []; for (let k = 0; k < nP; k++) { if (gid[k] === gi) A.push(k); if (gid[k] === gj) B.push(k); }
+      if (A.every(x => B.every(y => Q[x][y] >= P.NECK))) for (const k of B) gid[k] = gi; }
+    for (let i = 0; i < nP; i++) {
+      let sz = 0; for (let k = 0; k < nP; k++) if (gid[k] === gid[i]) sz++; if (sz > 1) continue;
+      const cand = []; for (let j = 0; j < nP; j++) { if (j === i || !(pts[i][2] < P.WEAK * pts[j][2])) continue;
+        const mn = lineMin(i, j); const q = mn === null ? 0 : mn / Math.min(pts[i][2], pts[j][2]); if (q >= P.NECK) cand.push([q, j]); }
+      if (cand.length && new Set(cand.map(c => gid[c[1]])).size === 1) { cand.sort((a, b) => b[0] - a[0] || b[1] - a[1]); gid[i] = gid[cand[0][1]]; } }
+    const groups = new Map(); for (let i = 0; i < nP; i++) { if (!groups.has(gid[i])) groups.set(gid[i], []); groups.get(gid[i]).push(i); }
+    const markers = keep(cv.Mat.zeros(rows, cols, cv.CV_32SC1)); const MK = markers.data32S;
+    const glist = [...groups.values()];
+    glist.forEach((mem, gi) => { for (const i of mem) { for (let p = 0; p < N; p++) if (PL[p] === i + 1) MK[p] = gi + 2;
+      for (const j of mem) cv.line(markers, new cv.Point(Math.trunc(pts[i][0]), Math.trunc(pts[i][1])), new cv.Point(Math.trunc(pts[j][0]), Math.trunc(pts[j][1])), new cv.Scalar(gi + 2), 2); } });
+    for (let p = 0; p < N; p++) if (!arr[p]) MK[p] = 1;
+    let dmax = 0; for (let p = 0; p < N; p++) if (dist[p] > dmax) dmax = dist[p];
+    const sc = 255.0 / Math.max(1.0, dmax); const dn = new Uint8Array(N * 3);
+    for (let p = 0; p < N; p++) { let v = dist[p] * sc; v = Math.min(255, Math.max(0, v)); const u = Math.trunc(255 - v); dn[3*p] = dn[3*p+1] = dn[3*p+2] = u; }
+    const dnM = keep(new cv.Mat(rows, cols, cv.CV_8UC3)); dnM.data.set(dn);
+    cv.watershed(dnM, markers); const WS = markers.data32S;
+    return glist.map((_, gi) => { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (WS[p] === gi + 2 && arr[p]) r[p] = 1; return r; });
+  }
+  const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
+  let regs = [];
+  for (const nm of ['Orange', 'Cool', 'Royal', 'Red', 'Diamond', 'CoolG', 'CoolA']) {
+    let parts;
+    if (nm === 'CoolG' || nm === 'CoolA') { const [n, lab] = cc(masks[nm]); parts = [];
+      for (let i = 1; i < n; i++) { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (lab[p] === i) r[p] = 1; parts.push(r); } }
+    else parts = split(masks[nm]);
+    for (const r of parts) { const a = sumA(r); if (a > 0) regs.push({nm: nm.startsWith('Cool') ? 'Cool' : nm, r, a}); }
+  }
+  // merge
+  function solidity(r) { const m = fromArr(r); const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    if (cs.size() === 0) { cs.delete(); hi.delete(); return 0; }
+    const all = []; for (let i = 0; i < cs.size(); i++) { const c = cs.get(i).data32S; for (let k = 0; k < c.length; k++) all.push(c[k]); }
+    const pm = cv.matFromArray(all.length / 2, 1, cv.CV_32SC2, all); const hull = new cv.Mat(); cv.convexHull(pm, hull, false, true);
+    const ha = cv.contourArea(hull); pm.delete(); hull.delete(); cs.delete(); hi.delete(); return sumA(r) / Math.max(1.0, ha); }
+  const medHue = r => { const v = []; for (let p = 0; p < N; p++) if (r[p] && colored[p]) v.push(H[p]); return v.length ? median(v) : 0; };
+  const gem = Math.PI * R * R; const k5 = ell(5);
+  let changed = true;
+  while (changed) { changed = false;
+    regs.forEach((o, i) => o.i = i); regs.sort((a, b) => a.a - b.a || a.i - b.i);
+    for (let i = 0; i < regs.length; i++) {
+      const {nm, r, a} = regs[i]; const rdM = fromArr(r); cv.dilate(rdM, rdM, k5); const RD = rdM.data;
+      let best = null;
+      for (let j = 0; j < regs.length; j++) { if (j === i) continue; const {nm: nm2, r: r2} = regs[j];
+        let touch = 0; for (let p = 0; p < N; p++) if (RD[p] && r2[p]) touch++; if (!touch) continue;
+        const u = new Uint8Array(N); for (let p = 0; p < N; p++) u[p] = r[p] | r2[p]; const ua = sumA(u); const sol = solidity(u);
+        const small = a < P.SMALL_FRAC * gem;
+        const glare = nm === 'Diamond' && nm2 !== 'Diamond';
+        const fam = (nm === 'Cool' || nm === 'Royal') && (nm2 === 'Cool' || nm2 === 'Royal') && nm !== nm2 && sol >= 0.95;
+        const same = nm === nm2 && (nm !== 'Cool' || Math.abs(medHue(r) - medHue(r2)) <= P.HUE_SAME);
+        const fam2 = (nm === 'Cool' || nm === 'Royal') && (nm2 === 'Cool' || nm2 === 'Royal') && nm !== nm2;
+        const a2 = sumA(r2);
+        const ok = (small && sol >= P.SOL_SMALL) || ((glare || same || fam) && sol >= P.SOL_MERGE && ua <= P.MAX_GEM * gem) ||
+          ((same || fam2) && Math.max(a, a2) < 0.85 * gem && ua <= 1.5 * gem && sol >= 0.55) ||
+          ((same || fam2) && a < 0.85 * gem && solidity(r) < 0.5 && sol >= 0.65 && ua <= 2.6 * gem) ||
+          ((same || fam2) && ua <= P.MAX_GEM * gem && (sol >= P.SOL_SAME || (sol >= P.SOL_FRAG && Math.max(solidity(r), solidity(r2)) < P.SOL_SAME + 0.05)));
+        if (ok && (best === null || touch > best[0])) best = [touch, j];
+      }
+      if (best) { const j = best[1]; const t = regs[j]; for (let p = 0; p < N; p++) t.r[p] |= r[p]; t.a = sumA(t.r);
+        if (t.nm === 'Diamond' && nm !== 'Diamond' && a > t.a / 2) t.nm = nm;
+        regs.splice(i, 1); changed = true; break; }
     }
   }
-  const med = a => { a.sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
-  const pad = Math.round(erodeSize / 2);
-  const details = [];
-  for (let i = 1; i < num; i++) {
-    const area = stats.intPtr(i)[4];
-    if (area < minArea) continue;
-    const frac = hv[i].length / tot[i];
-    const name = classify(med(hv[i]), med(sv[i]), frac);
-    if (!name) continue;
-    const x = stats.intPtr(i)[0] - pad, y = stats.intPtr(i)[1] - pad;
-    const w = stats.intPtr(i)[2] + 2 * pad, h = stats.intPtr(i)[3] + 2 * pad;
-    cv.rectangle(output, new cv.Point(x, y), new cv.Point(x + w, y + h), byName[name].draw, 3);
-    counts[name] += 1;
+  const eq = regs.filter(o => o.a >= 0.15 * gem).map(o => Math.sqrt(o.a / Math.PI));
+  const R1 = eq.length ? median(eq) : R;
+  const out = keep(rgb.clone()); const dets = [];
+  for (const o of regs) {
+    if (o.a < P.MIN_FRAC * Math.PI * R1 * R1 || o.a < minArea) continue;
+    let name = o.nm === 'Royal' ? 'Blue' : o.nm; if (o.nm === 'Cool') name = medHue(o.r) <= P.GB_SPLIT ? 'Green' : 'Blue';
+    let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; }
+    dets.push({name, x: Math.trunc(sx / o.a), y: Math.trunc(sy / o.a), area: o.a});
+    const m = fromArr(o.r); const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const c = GEM_DRAW[name]; cv.drawContours(out, cs, -1, new cv.Scalar(c[0], c[1], c[2]), 2); cs.delete(); hi.delete();
   }
-  fg.delete(); seeds.delete(); kE.delete(); labels.delete(); stats.delete(); centroids.delete();
-
-  if (lastHsv) lastHsv.delete(); lastHsv = hsv.clone();
-
-  const outCanvas = document.getElementById('outputCanvas');
-  outCanvas.width = output.cols;
-  outCanvas.height = output.rows;
-  cv.imshow(outCanvas, output);
-  outCanvas.classList.remove('hidden');
-
-  let total = 0;
-  let html = '';
-  const displayOrder = colors.map(c => ({ key: c.name, pts: c.points, css: c.css }));
-  displayOrder.forEach(item => {
-    const c = counts[item.key] || 0;
-    const pts = c * item.pts;
-    total += pts;
-    html += `<div class="gem-row"><span><span class="gem-color" style="background:${item.css}"></span>${item.key}</span><span>${c} × ${item.pts} = ${pts}</span></div>`;
+  for (const d of dets) { const pt = new cv.Point(d.x - 28, d.y + 4);
+    cv.putText(out, d.name, pt, cv.FONT_HERSHEY_SIMPLEX, 0.45, new cv.Scalar(0, 0, 0), 3);
+    cv.putText(out, d.name, pt, cv.FONT_HERSHEY_SIMPLEX, 0.45, new cv.Scalar(255, 255, 255), 1); }
+  const counts = {Orange: 0, Green: 0, Blue: 0, Red: 0, Diamond: 0}; dets.forEach(d => counts[d.name]++);
+  const outRGBA = new cv.Mat(); cv.cvtColor(out, outRGBA, cv.COLOR_RGB2RGBA);
+  const hsvOut = hsv.clone();
+  del.forEach(m => { try { m.delete(); } catch (e) {} });
+  return {counts, dets, out: outRGBA, hsv: hsvOut, R, R1};
+}
+const GEM_COLORS = [
+  { name: 'Orange',  points: 5,   css: '#ffa500' },
+  { name: 'Green',   points: 10,  css: '#00cc00' },
+  { name: 'Blue',    points: 15,  css: '#0066ff' },   // all shades of blue (aqua, light, royal)
+  { name: 'Red',     points: 20,  css: '#ff3333' },   // pinkish reds count as Red
+  { name: 'Diamond', points: 100, css: '#e0f0ff' }    // clear gems
+];
+let lastCounts = null;
+function renderResults() {
+  let total = 0, html = '';
+  GEM_COLORS.forEach(g => {
+    const c = lastCounts[g.name] || 0, pts = c * g.points; total += pts;
+    html += `<div class="gem-row"><span><span class="gem-color" style="background:${g.css}"></span>${g.name}</span>` +
+      `<span><button class="adj" data-g="${g.name}" data-d="-1" style="padding:2px 8px;margin:0 4px">−</button>${c} × ${g.points} = ${pts}` +
+      `<button class="adj" data-g="${g.name}" data-d="1" style="padding:2px 8px;margin:0 4px">+</button></span></div>`;
   });
   lastTotalXP = total;
   document.getElementById('gemList').innerHTML = html;
+  document.querySelectorAll('#gemList .adj').forEach(b => b.onclick = () => {
+    lastCounts[b.dataset.g] = Math.max(0, (lastCounts[b.dataset.g] || 0) + parseInt(b.dataset.d)); renderResults(); });
   document.getElementById('totalPoints').textContent = `Total: ${total} XP`;
-  document.getElementById('results').classList.remove('hidden');
-  document.getElementById('controls').classList.remove('hidden');
-  document.getElementById('status').classList.add('hidden');
-  document.getElementById('video').style.display = 'none';
-  document.getElementById('captureBtn').style.display = 'none';
-  document.getElementById('retryBtn').classList.remove('hidden');
-
   const addBtn = document.getElementById('addXpBtn');
   const kid = kids.find(k => k.id === selectedKidId);
   addBtn.textContent = kid ? `Add ${total} XP to ${kid.name}` : 'Select a kid first, then Add XP';
   addBtn.classList.remove('hidden');
-
-  src.delete(); resized.delete(); hsv.delete(); output.delete();
 }
-
+function processImageInner() {
+  if (!capturedImageData || !cvReady) return;
+  const st = document.getElementById('status');
+  st.classList.remove('hidden'); st.textContent = 'Analyzing...';
+  const minArea = parseInt(document.getElementById('minArea').value) || 200;
+  const sens = parseInt(document.getElementById('sensitivity').value) || 60;
+  // Sensitivity: higher = weaker colors still count as colored (default 60 -> 40 above the mat's saturation)
+  const src = cv.matFromImageData(capturedImageData);
+  const res = detectGems(cv, src, minArea, { S_OVER_MAT: Math.max(10, 100 - sens) });
+  src.delete();
+  if (lastHsv) lastHsv.delete(); lastHsv = res.hsv;
+  const outCanvas = document.getElementById('outputCanvas');
+  outCanvas.width = res.out.cols; outCanvas.height = res.out.rows;
+  cv.imshow(outCanvas, res.out); res.out.delete();
+  outCanvas.classList.remove('hidden');
+  lastCounts = Object.assign({}, res.counts);
+  renderResults();
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('controls').classList.remove('hidden');
+  st.classList.add('hidden');
+  document.getElementById('video').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retryBtn').classList.remove('hidden');
+}
 // Tap the result image to read the color (H,S,V) at that spot, for tuning
 document.getElementById('outputCanvas').addEventListener('click', (e) => {
   if (!lastHsv) return;
