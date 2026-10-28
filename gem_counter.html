@@ -329,9 +329,9 @@ function processImage() {
   }
 }
 // ===== Gem detection core (mirrors gemcv.py exactly) =====
-var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.22,
+var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.2,
   SMALL_FRAC:0.35, SOL_SMALL:0.75, SOL_MERGE:0.9, MAX_GEM:1.6, HUE_SAME:8, GRAD_MIN:30, GRAD_K:2.0, ROYAL_H:104,
-  R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75};
+  R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75, R_FILT:0, SEP:1.3, SEP_Q:0.95, ASSIGN:1, SEP_D:1.2, G_FRAC:0.3};
 var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
 function detectGems(cv, srcRGBA, minArea, P) {
@@ -408,7 +408,8 @@ function detectGems(cv, srcRGBA, minArea, P) {
   for (const nm of Object.keys(masks)) { const d = distT(masks[nm]); const [n, lab] = cc(masks[nm]); const best = new Float64Array(n);
     for (let p = 0; p < N; p++) if (lab[p] > 0 && d[p] > best[lab[p]]) best[lab[p]] = d[p];
     for (let i = 1; i < n; i++) mx.push(best[i]); }
-  const R = mx.length ? percentile(mx, P.R_PCT) : 20.0;
+  const mxMax = mx.length ? Math.max(...mx) : 0; const mxF = mx.filter(v => v >= P.R_FILT * mxMax);
+  const R = mxF.length ? percentile(mxF, P.R_PCT) : 20.0;
   // bimodal Cool split
   { const cm = masks['Cool']; const [n, lab] = cc(cm);
     const hw = new Float32Array(N), ww = new Float32Array(N); for (let p = 0; p < N; p++) { hw[p] = colored[p] ? H[p] : 0; ww[p] = colored[p]; }
@@ -455,6 +456,8 @@ function detectGems(cv, srcRGBA, minArea, P) {
     const Q = []; for (let i = 0; i < nP; i++) { Q.push([]); for (let j = 0; j < nP; j++) { if (i === j) { Q[i].push(1); continue; }
       const mn = lineMin(i, j); Q[i].push(mn === null ? 0 : mn / Math.max(pts[i][2], pts[j][2])); } }
     const gid = [...Array(nP).keys()];
+    const far = (i, j) => Math.hypot(pts[i][0]-pts[j][0], pts[i][1]-pts[j][1]) >= P.SEP * Math.max(pts[i][2], pts[j][2]) && Q[i][j] < P.SEP_Q && Math.min(pts[i][2], pts[j][2]) >= P.SEP_D * R;
+    const cut = []; for (let i = 0; i < nP; i++) for (let j = 0; j < nP; j++) if (i !== j && Q[i][j] >= P.NECK && far(i, j)) { Q[i][j] = Math.min(Q[i][j], P.NECK - 0.01); if (i < j) cut.push([i, j]); }
     const pairs = []; for (let i = 0; i < nP; i++) for (let j = i+1; j < nP; j++) if (Q[i][j] >= P.NECK) pairs.push([Q[i][j], i, j]);
     pairs.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
     for (const [, i, j] of pairs) { const gi = gid[i], gj = gid[j]; if (gi === gj) continue;
@@ -476,6 +479,12 @@ function detectGems(cv, srcRGBA, minArea, P) {
     for (let p = 0; p < N; p++) { let v = dist[p] * sc; v = Math.min(255, Math.max(0, v)); const u = Math.trunc(255 - v); dn[3*p] = dn[3*p+1] = dn[3*p+2] = u; }
     const dnM = keep(new cv.Mat(rows, cols, cv.CV_8UC3)); dnM.data.set(dn);
     cv.watershed(dnM, markers); const WS = markers.data32S;
+    if (P.ASSIGN) for (const [i, j] of cut) {
+      const gi = glist.findIndex(m => m.includes(i)) + 2, gj = glist.findIndex(m => m.includes(j)) + 2; if (gi === gj) continue;
+      for (let p = 0; p < N; p++) { if (!arr[p] || (WS[p] !== gi && WS[p] !== gj && WS[p] !== -1)) continue;
+        const x = p % cols, y = (p / cols) | 0;
+        const vi = Math.hypot(x - pts[i][0], y - pts[i][1]) / pts[i][2], vj = Math.hypot(x - pts[j][0], y - pts[j][1]) / pts[j][2];
+        if (Math.min(vi, vj) > 2.2) continue; WS[p] = vi <= vj ? gi : gj; } }
     return glist.map((_, gi) => { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (WS[p] === gi + 2 && arr[p]) r[p] = 1; return r; });
   }
   const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
@@ -526,7 +535,7 @@ function detectGems(cv, srcRGBA, minArea, P) {
   const out = keep(rgb.clone()); const dets = [];
   for (const o of regs) {
     if (o.a < P.MIN_FRAC * Math.PI * R1 * R1 || o.a < minArea) continue;
-    let name = o.nm === 'Royal' ? 'Blue' : o.nm; if (o.nm === 'Cool') name = medHue(o.r) <= P.GB_SPLIT ? 'Green' : 'Blue';
+    let name = o.nm === 'Royal' ? 'Blue' : o.nm; if (o.nm === 'Cool') { if (P.G_FRAC > 0) { let c = 0, g = 0; for (let p = 0; p < N; p++) if (o.r[p] && colored[p]) { c++; if (H[p] <= P.GB_SPLIT) g++; } name = c && g / c >= P.G_FRAC ? 'Green' : 'Blue'; } else name = medHue(o.r) <= P.GB_SPLIT ? 'Green' : 'Blue'; }
     let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; }
     dets.push({name, x: Math.trunc(sx / o.a), y: Math.trunc(sy / o.a), area: o.a});
     const m = fromArr(o.r); const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
