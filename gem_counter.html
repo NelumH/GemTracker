@@ -106,6 +106,7 @@
       <h2>Gems Found!</h2>
       <div id="gemList"></div>
       <div class="total" id="totalPoints">Total: 0 XP</div>
+      <button id="addXpBtn">➕ Add XP to Kid</button>
       <p style="font-size:0.85em; opacity:0.8;">Approximate counts. Adjust and re-count if needed. - until code works reliably</p>
     </div>
 
@@ -318,7 +319,7 @@ document.getElementById('retryBtn').onclick = () => {
 };
 
 document.getElementById('reprocessBtn').onclick = processImage;
-document.getElementById('addXpBtn').onclick = () => addXPToKid(lastTotalXP);
+{ const b=document.getElementById('addXpBtn'); if (b) b.onclick = () => addXPToKid(lastTotalXP); }
 
 function processImage() {
   try { processImageInner(); } catch (e) {
@@ -328,10 +329,10 @@ function processImage() {
   }
 }
 // ===== Gem detection core (mirrors gemcv.py exactly) =====
-const GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.22,
+var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.22,
   SMALL_FRAC:0.35, SOL_SMALL:0.75, SOL_MERGE:0.9, MAX_GEM:1.6, HUE_SAME:8, GRAD_MIN:30, GRAD_K:2.0, ROYAL_H:104,
   R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75};
-const GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
+var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
 function detectGems(cv, srcRGBA, minArea, P) {
   P = Object.assign({}, GEM_P, P || {});
