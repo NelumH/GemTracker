@@ -329,12 +329,13 @@ function processImage() {
   }
 }
 // ===== Gem detection core (mirrors gemcv.py exactly) =====
+// ===== Gem detection core (mirrors gemcv.py exactly) =====
 var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.2,
   SMALL_FRAC:0.35, SOL_SMALL:0.75, SOL_MERGE:0.9, MAX_GEM:1.6, HUE_SAME:8, GRAD_MIN:30, GRAD_K:2.0, ROYAL_H:104,
-  R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75, R_FILT:0, SEP:1.3, SEP_Q:0.95, ASSIGN:1, SEP_D:1.2, G_FRAC:0.3};
+  R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75, R_FILT:0, SEP:1.3, SEP_Q:0.95, ASSIGN:1, SEP_D:1.2, G_FRAC:0.3, R_W:0, CL_D:0, CL_SOL:0.85, CL_A:1.6, EDGE_REJ:0, WARM_S:0, R_WM:0, RS_K:0, KEEP_NP:0, MIN_FRAC_D:0, BASK:0, RED_S:0, RED_A:0.6, WARM_NEAR:0};
 var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
-function detectGems(cv, srcRGBA, minArea, P) {
+function detectGemsCore(cv, srcRGBA, minArea, P) {
   P = Object.assign({}, GEM_P, P || {});
   const del = []; const keep = m => (del.push(m), m);
   const ell = k => keep(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(k, k)));
@@ -404,12 +405,23 @@ function detectGems(cv, srcRGBA, minArea, P) {
     return [n, Int32Array.from(lab.data32S)]; }
   function distT(arr) { const m = fromArr(arr); const d = keep(new cv.Mat()); cv.distanceTransform(m, d, cv.DIST_L2, 5); return Float32Array.from(d.data32F); }
   // typical radius
-  const mx = [];
+  const mx = [], mxa = [];
   for (const nm of Object.keys(masks)) { const d = distT(masks[nm]); const [n, lab] = cc(masks[nm]); const best = new Float64Array(n);
     for (let p = 0; p < N; p++) if (lab[p] > 0 && d[p] > best[lab[p]]) best[lab[p]] = d[p];
-    for (let i = 1; i < n; i++) mx.push(best[i]); }
+    const ar = new Float64Array(n); for (let p = 0; p < N; p++) if (lab[p] > 0) ar[lab[p]]++;
+    for (let i = 1; i < n; i++) { mx.push(best[i]); mxa.push(ar[i]); } }
   const mxMax = mx.length ? Math.max(...mx) : 0; const mxF = mx.filter(v => v >= P.R_FILT * mxMax);
-  const R = mxF.length ? percentile(mxF, P.R_PCT) : 20.0;
+  let R = mxF.length ? percentile(mxF, P.R_PCT) : 20.0;
+  if (P.R_W && mx.length) { const idx = [...mx.keys()].sort((a, b) => mx[a] - mx[b]); let tot = 0; const wt = i => P.R_WM ? mx[i] * mx[i] : mxa[i]; for (const i of idx) tot += wt(i);
+    let acc = 0; for (const i of idx) { acc += wt(i); if (acc >= P.R_W / 100 * tot) { R = mx[i]; break; } } }
+  const RS = P.RS_K ? P.RS_K * R : R;
+  let BASK = null;
+  if (P.BASK) { const b = new Uint8Array(N); for (let p = 0; p < N; p++) b[p] = (S[p] >= sthr && V[p] >= P.V_COL && H[p] >= 85 && H[p] <= 134) ? 255 : 0;
+    const bm = fromArr(b); cv.morphologyEx(bm, bm, cv.MORPH_CLOSE, ell(15)); const [n, lab] = cc(toArr(bm));
+    const ar = new Float64Array(n), ed = new Uint8Array(n);
+    for (let p = 0; p < N; p++) { const l = lab[p]; if (!l) continue; ar[l]++; const x = p % cols, y = (p / cols) | 0; if (x < 2 || y < 2 || x >= cols - 2 || y >= rows - 2) ed[l] = 1; }
+    BASK = new Uint8Array(N); for (let p = 0; p < N; p++) { const l = lab[p]; if (l && ed[l] && ar[l] > P.BASK * Math.PI * R * R) BASK[p] = 255; }
+    const km = fromArr(BASK); cv.dilate(km, km, ell(7)); BASK = toArr(km); }
   // bimodal Cool split
   { const cm = masks['Cool']; const [n, lab] = cc(cm);
     const hw = new Float32Array(N), ww = new Float32Array(N); for (let p = 0; p < N; p++) { hw[p] = colored[p] ? H[p] : 0; ww[p] = colored[p]; }
@@ -442,7 +454,7 @@ function detectGems(cv, srcRGBA, minArea, P) {
   function split(arr) {
     const dist = distT(arr);
     const dM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, dist)); const dil = keep(new cv.Mat());
-    const ks = Math.max(3, Math.trunc(R * 0.9) | 1); cv.dilate(dM, dil, ell(ks)); const DL = dil.data32F;
+    const ks = Math.max(3, Math.trunc(R * (P.KS_K || 0.9)) | 1); cv.dilate(dM, dil, ell(ks)); const DL = dil.data32F;
     const pk = new Uint8Array(N); for (let p = 0; p < N; p++) pk[p] = (dist[p] >= DL[p] - 0.5 && dist[p] >= P.PEAK_FRAC * R) ? 255 : 0;
     const pkM = fromArr(pk); const pl = keep(new cv.Mat()), st = keep(new cv.Mat()), ce = keep(new cv.Mat());
     const pn = cv.connectedComponentsWithStats(pkM, pl, st, ce, 8, cv.CV_32S); const PL = pl.data32S;
@@ -455,8 +467,9 @@ function detectGems(cv, srcRGBA, minArea, P) {
       return mn; };
     const Q = []; for (let i = 0; i < nP; i++) { Q.push([]); for (let j = 0; j < nP; j++) { if (i === j) { Q[i].push(1); continue; }
       const mn = lineMin(i, j); Q[i].push(mn === null ? 0 : mn / Math.max(pts[i][2], pts[j][2])); } }
+    if (typeof process !== 'undefined' && process.env.DBG2) for (let i = 0; i < nP; i++) if (Math.abs(pts[i][0] - +process.env.DBG2.split(',')[0]) < 90 && Math.abs(pts[i][1] - +process.env.DBG2.split(',')[1]) < 90) console.log('PK', i, pts[i].map(v => v.toFixed(1)).join(','), Q[i].map(v => v.toFixed(2)).filter((v, j) => Q[i][j] > 0.3 && j !== i).join(' '));
     const gid = [...Array(nP).keys()];
-    const far = (i, j) => Math.hypot(pts[i][0]-pts[j][0], pts[i][1]-pts[j][1]) >= P.SEP * Math.max(pts[i][2], pts[j][2]) && Q[i][j] < P.SEP_Q && Math.min(pts[i][2], pts[j][2]) >= P.SEP_D * R;
+    const far = (i, j) => Math.hypot(pts[i][0]-pts[j][0], pts[i][1]-pts[j][1]) >= P.SEP * Math.max(pts[i][2], pts[j][2]) && Q[i][j] < P.SEP_Q && Math.min(pts[i][2], pts[j][2]) >= P.SEP_D * RS;
     const cut = []; for (let i = 0; i < nP; i++) for (let j = 0; j < nP; j++) if (i !== j && Q[i][j] >= P.NECK && far(i, j)) { Q[i][j] = Math.min(Q[i][j], P.NECK - 0.01); if (i < j) cut.push([i, j]); }
     const pairs = []; for (let i = 0; i < nP; i++) for (let j = i+1; j < nP; j++) if (Q[i][j] >= P.NECK) pairs.push([Q[i][j], i, j]);
     pairs.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
@@ -485,7 +498,10 @@ function detectGems(cv, srcRGBA, minArea, P) {
         const x = p % cols, y = (p / cols) | 0;
         const vi = Math.hypot(x - pts[i][0], y - pts[i][1]) / pts[i][2], vj = Math.hypot(x - pts[j][0], y - pts[j][1]) / pts[j][2];
         if (Math.min(vi, vj) > 2.2) continue; WS[p] = vi <= vj ? gi : gj; } }
-    return glist.map((_, gi) => { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (WS[p] === gi + 2 && arr[p]) r[p] = 1; return r; });
+    const outR = glist.map((_, gi) => { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (WS[p] === gi + 2 && arr[p]) r[p] = 1; return r; });
+    if (P.KEEP_NP) { const [n, lab] = cc(arr); const hasPk = new Uint8Array(n); for (let p = 0; p < N; p++) if (PL[p] > 0) hasPk[lab[p]] = 1;
+      for (let i = 1; i < n; i++) if (!hasPk[i]) { const r = new Uint8Array(N); let c = 0; for (let p = 0; p < N; p++) if (lab[p] === i) { r[p] = 1; c++; } if (c >= P.KEEP_NP) outR.push(r); } }
+    return outR;
   }
   const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
   let regs = [];
@@ -525,19 +541,37 @@ function detectGems(cv, srcRGBA, minArea, P) {
           ((same || fam2) && ua <= P.MAX_GEM * gem && (sol >= P.SOL_SAME || (sol >= P.SOL_FRAG && Math.max(solidity(r), solidity(r2)) < P.SOL_SAME + 0.05)));
         if (ok && (best === null || touch > best[0])) best = [touch, j];
       }
-      if (best) { const j = best[1]; const t = regs[j]; for (let p = 0; p < N; p++) t.r[p] |= r[p]; t.a = sumA(t.r);
+      if (best) { const j = best[1]; const t = regs[j]; if (typeof process !== 'undefined' && process.env.DBG) { const c = q => { let sx = 0, sy = 0, n = 0; for (let p = 0; p < N; p++) if (q[p]) { sx += p % cols; sy += (p / cols) | 0; n++; } return [Math.round(sx / n), Math.round(sy / n)]; }; console.log('MERGE', nm, c(r), (a / gem).toFixed(2), '->', t.nm, c(t.r), (t.a / gem).toFixed(2)); } for (let p = 0; p < N; p++) t.r[p] |= r[p]; t.a = sumA(t.r);
         if (t.nm === 'Diamond' && nm !== 'Diamond' && a > t.a / 2) t.nm = nm;
         regs.splice(i, 1); changed = true; break; }
     }
   }
   const eq = regs.filter(o => o.a >= 0.15 * gem).map(o => Math.sqrt(o.a / Math.PI));
   const R1 = eq.length ? median(eq) : R;
+  if (P.WARM_S) { const cen0 = o => { let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; } return [sx / o.a, sy / o.a]; };
+    const dc = regs.filter(o => o.nm === 'Diamond' && o.a >= 0.1 * gem).map(cen0);
+    for (const o of regs) if ((o.nm === 'Orange' && o.a < P.RED_A * gem) || (o.nm === 'Red' && P.RED_S && o.a < P.RED_A * gem)) { const sv = []; for (let p = 0; p < N; p++) if (o.r[p]) sv.push(S[p]);
+      if (median(sv) >= (o.nm === 'Red' ? P.RED_S : P.WARM_S)) continue; const c = cen0(o);
+      if (!P.WARM_NEAR || dc.some(d => Math.hypot(d[0] - c[0], d[1] - c[1]) < P.WARM_NEAR * R)) o.nm = 'Diamond'; } }
+  if (BASK) regs = regs.filter(o => { if (o.nm !== 'Cool' && o.nm !== 'Royal') return true; let c = 0; for (let p = 0; p < N; p++) if (o.r[p] && BASK[p]) c++; return c < 0.2 * o.a; });
+  if (P.CL_D > 0) { const cen = o => { let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; } return [sx / o.a, sy / o.a]; };
+    let ch = true; while (ch) { ch = false; regs.forEach(o => o.c = cen(o)); regs.sort((a, b) => b.a - a.a);
+      outer: for (let i = 0; i < regs.length; i++) for (let j = i + 1; j < regs.length; j++) { const A = regs[i], B = regs[j];
+        if ((A.nm === 'Diamond') !== (B.nm === 'Diamond')) continue;
+        const d = Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1]); if (d > P.CL_D * R1) continue;
+        const u = new Uint8Array(N); for (let p = 0; p < N; p++) u[p] = A.r[p] | B.r[p]; const ua = sumA(u);
+        if (ua > P.CL_A * Math.PI * R1 * R1 || solidity(u) < P.CL_SOL) continue;
+        A.r = u; A.a = ua; regs.splice(j, 1); ch = true; break outer; } } }
   const out = keep(rgb.clone()); const dets = [];
   for (const o of regs) {
-    if (o.a < P.MIN_FRAC * Math.PI * R1 * R1 || o.a < minArea) continue;
+    if (o.a < ((o.nm === 'Diamond' && P.MIN_FRAC_D) ? P.MIN_FRAC_D : P.MIN_FRAC) * Math.PI * R1 * R1 || o.a < minArea) { if (typeof process !== 'undefined' && process.env.DBG && o.a > 50) { let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; } console.log('SMALL', o.nm, Math.round(sx / o.a), Math.round(sy / o.a), (o.a / (Math.PI * R1 * R1)).toFixed(3)); } continue; }
     let name = o.nm === 'Royal' ? 'Blue' : o.nm; if (o.nm === 'Cool') { if (P.G_FRAC > 0) { let c = 0, g = 0; for (let p = 0; p < N; p++) if (o.r[p] && colored[p]) { c++; if (H[p] <= P.GB_SPLIT) g++; } name = c && g / c >= P.G_FRAC ? 'Green' : 'Blue'; } else name = medHue(o.r) <= P.GB_SPLIT ? 'Green' : 'Blue'; }
     let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sx += p % cols; sy += (p / cols) | 0; }
-    dets.push({name, x: Math.trunc(sx / o.a), y: Math.trunc(sy / o.a), area: o.a});
+    const sv = []; let edge = 0; for (let p = 0; p < N; p++) if (o.r[p]) { sv.push(S[p]); const x = p % cols, y = (p / cols) | 0; if (x < 3 || y < 3 || x >= cols - 3 || y >= rows - 3) edge++; }
+    const ms = median(sv), mv = percentile(sv, 85);
+    if (P.EDGE_REJ && edge > 0 && name === 'Blue') continue;
+    if (P.WARM_S && name === 'Orange' && ms < P.WARM_S) name = 'Diamond';
+    dets.push({name, x: Math.trunc(sx / o.a), y: Math.trunc(sy / o.a), area: o.a, ms, mv, edge});
     const m = fromArr(o.r); const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     const c = GEM_DRAW[name]; cv.drawContours(out, cs, -1, new cv.Scalar(c[0], c[1], c[2]), 2); cs.delete(); hi.delete();
   }
@@ -549,6 +583,19 @@ function detectGems(cv, srcRGBA, minArea, P) {
   const hsvOut = hsv.clone();
   del.forEach(m => { try { m.delete(); } catch (e) {} });
   return {counts, dets, out: outRGBA, hsv: hsvOut, R, R1};
+}
+
+var GEM_V5 = {CL_D:1.3, CL_SOL:0.75, R_WM:1, RS_K:0.7, KEEP_NP:30, R_W:50, BASK:3, WARM_S:120, RED_S:145, MIN_FRAC_D:0.3, WARM_NEAR:1.3};
+// v5: run the v4 pipeline; if its result looks fragmented (many tiny or oversized pieces), rerun with the robust v5 settings.
+function detectGems(cv, srcRGBA, minArea, P) {
+  P = P || {};
+  const a = detectGemsCore(cv, srcRGBA, minArea, P);
+  const ar = a.dets.map(d => d.area).sort((x, y) => x - y); const med = ar.length ? ar[ar.length >> 1] : 0;
+  const bad = ar.filter(x => x < 0.4 * med || x > 2.2 * med).length;
+  if (bad < 8) { a.mode = 'v4'; return a; }
+  const b = detectGemsCore(cv, srcRGBA, minArea, Object.assign({}, P, GEM_V5)); b.mode = 'v5';
+  try { a.out.delete(); a.hsv.delete(); } catch (e) {}
+  return b;
 }
 const GEM_COLORS = [
   { name: 'Orange',  points: 5,   css: '#ffa500' },
