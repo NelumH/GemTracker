@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <!-- make the file not easily searchable on git hub-->
     <meta name="robots" content="noindex, nofollow">
-    <title>Treasure Box Gem Counter - Kids Rock Club</title>
+    <title>Treasure Box Gem Counter and Tracker - Kids Rock Club</title>
+
+    <!-- Look and Feel of the website -->
     <style>
       :root {
         --bg: #1a1a2e;
@@ -13,6 +16,7 @@
         --gold: #e94560;
         --text: #eee;
       }
+
       * { box-sizing: border-box; }
       body {
         font-family: 'Segoe UI', system-ui, sans-serif;
@@ -22,6 +26,7 @@
         padding: 10px;
         text-align: center;
       }
+
       h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
       h2, h3 { font-size: 1.2em; margin: 15px 0 5px; }
       .container { max-width: 500px; margin: 0 auto; }
@@ -62,18 +67,36 @@
           animation: pulse 1s infinite;
       }
       @keyframes pulse { 50% { transform: scale(1.05); } }
-      .hidden (display: none !important; )
+      .hidden { display: none !important; }
+      #syncCard input { width: 95%; }
+      #syncBadge { font-size: .9em; opacity: .9; }
+      #printView { display:none; background:#fff; color:#000; text-align:left; font-family: Arial, sans-serif; }
+      #printView table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
+      #printView th, #printView td { border: 1px solid #000; padding: 6px 8px; font-size: 13pt; }
+      #printView .pg { page-break-after: always; break-after: page; padding: 10px; }
+      #printView .pg:last-child { page-break-after: auto; }
+      #printView h2 { margin: 0 0 6px; font-size: 18pt; color:#000; }
+      #printView .door td, #printView .door th { font-size: 18pt; border-style: dashed; }
+      #printView .blank { width: 16%; }
+      #printView tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body.printing { background:#fff; color:#000; }
+      body.printing .container { display:none; }
+      body.printing #printView { display:block; }
+      @media print { .noprint { display:none !important; } body { background:#fff; padding:0; } }
+      @page { margin: 0.4in; }
     </style>
 </head>
+
 <body>
   <div class="container">
-    <h1>⛏️ Kids Rock Club Gem Counter 💎</h1>
+    <h1>⛏️ Kids Rock Club Gem Counter and XP Tracker 💎</h1>
 
     <!-- Kid Management -->
     <div class="card" id="kidSection">
       <h3>Kids (private on this device)</h3>
       <select id="kidSelect"><option value="">-- Select Kid --</option></select>
       <button id="addKidBtn">+ Add Kid</button>
+      
       <div id="kidStats" class="hidden">
         <div class="stat-row"><span>Level:</span> <strong id="statLevel">1</strong></div>
         <div class="stat-row"><span>XP Earned:</span> <strong id="statEarned">0</strong></div>
@@ -83,6 +106,21 @@
       </div>
     </div>
     
+    <!-- v6: Google Sheet sync + printing -->
+    <div class="card" id="syncCard">
+      <h3>Google Sheet</h3>
+      <div id="syncBadge">Not connected</div>
+      <button id="syncBtn">🔄 Sync with Sheet</button>
+      <button id="printBtn">🖨️ Print</button>
+      <button id="settingsBtn">⚙️ Settings</button>
+      <div id="settingsBox" class="hidden" style="text-align:left">
+        <label>Apps Script web app URL:<br><input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec"></label><br>
+        <label>Key (optional, must match SECRET in the script):<br><input id="setKey"></label><br>
+        <label>Leader name:<br><input id="setLeader"></label><br>
+        <label>Session date:<br><input id="setDate" type="date"></label><br>
+        <button id="saveSettingsBtn">Save settings</button>
+      </div>
+    </div>
     <p class="instructions">
       Select a kid, then capture the treasure box. Points become XP. Level updates automatically.
       Point the camera at the <strong>inside</strong> of the treasure box (good lighting helps!). 
@@ -120,6 +158,16 @@
     </div>
   </div>
 
+  <div id="printView">
+    <div class="noprint" style="padding:10px;background:#eee">
+      <button id="pvGroups">Purchase sheets (all groups)</button>
+      <button id="pvDoor">Door poster</button>
+      <button id="pvPrint">Print</button>
+      <button id="pvClose">Close</button>
+      <div id="pvNote" style="font-size:11pt"></div>
+    </div>
+    <div id="pvBody"></div>
+  </div>
 <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
 <script>
 var lastHsv = null;
@@ -665,6 +713,160 @@ loadKids();
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
+</script>
+<script>
+// ========== v6: Google Sheet sync (Apps Script) + offline queue + printing ==========
+const SET_KEY = 'krcSettings_v6', QUEUE_KEY = 'krcQueue_v6', SUMMARY_KEY = 'krcSummary_v6';
+const GROUPS = ['Pebbles', 'Granites', 'Quartz', 'Diamonds'];
+const GROUP_COLORS = { Pebbles: '#FFF5CE', Granites: '#DDE8CB', Quartz: '#DEE6EF', Diamonds: '#FFD7D7' };
+function getSettings() { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } }
+function getQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch (e) { return []; } }
+function setQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); updateBadge(); }
+function getSummary() { try { return JSON.parse(localStorage.getItem(SUMMARY_KEY)); } catch (e) { return null; } }
+function sundayISO() {
+  const d = new Date(); d.setDate(d.getDate() - d.getDay());
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function sessionDate() { return getSettings().date || sundayISO(); }
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function updateBadge(msg) {
+  const st = getSettings(), q = getQueue(), sm = getSummary();
+  let t = st.url ? 'Connected to sheet' : 'No sheet URL yet (Settings)';
+  if (sm) t += ' · roster ' + new Date(sm.updated).toLocaleString();
+  if (q.length) t += ' · ' + q.length + ' waiting to upload';
+  document.getElementById('syncBadge').textContent = msg ? msg + ' — ' + t : t;
+}
+
+// Roster from the sheet replaces the device-only list (sheet is the source of truth)
+function applySummary(sm) {
+  if (!sm || !sm.kids) return;
+  const pending = getQueue();
+  kids = sm.kids.map(k => {
+    const id = String(k.id);
+    let earned = Number(k.earned) || 0, spent = Number(k.spent) || 0;
+    pending.forEach(p => { if (p.name === k.name && p.group === k.group) { if (p.type === 'gem') earned += p.xp; else spent += p.points; } });
+    return { id, name: k.name, group: k.group, xpEarned: earned, xpSpent: spent, level: k.level || 1, title: k.title || '' };
+  });
+  saveKids();
+  renderKidSelect();
+  document.querySelectorAll('#kidSelect option').forEach(o => {
+    const k = kids.find(x => x.id === o.value); if (k && k.group) o.textContent = k.name + ' (' + k.group + ')';
+  });
+}
+
+async function fetchSummary() {
+  const st = getSettings(); if (!st.url) { updateBadge('Add the Apps Script URL in Settings'); return; }
+  try {
+    const r = await fetch(st.url + (st.url.includes('?') ? '&' : '?') + 'action=summary&key=' + encodeURIComponent(st.key || ''));
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || 'error');
+    localStorage.setItem(SUMMARY_KEY, JSON.stringify(j)); applySummary(j); updateBadge('Synced');
+  } catch (e) { updateBadge('Offline, using saved copy'); }
+}
+
+async function flushQueue() {
+  const st = getSettings(); if (!st.url) return;
+  let q = getQueue();
+  while (q.length) {
+    const item = q[0];
+    try {
+      const r = await fetch(st.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ key: st.key || '' }, item)) });
+      const j = await r.json(); if (!j.ok) throw new Error(j.error || 'error');
+      q.shift(); setQueue(q);
+    } catch (e) { updateBadge('Saved on phone, will retry'); return; }
+  }
+  updateBadge('All saved to sheet');
+}
+function enqueue(item) {
+  item.clientId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  item.leader = getSettings().leader || '';
+  const q = getQueue(); q.push(item); setQueue(q); flushQueue();
+}
+
+// Wrap Add XP: keep the old local behaviour, then queue a GemLog row
+const _origAddXP = addXPToKid;
+addXPToKid = function (amount) {
+  const kid = kids.find(k => k.id === selectedKidId);
+  _origAddXP(amount);
+  if (!kid || !amount) return;
+  if (!kid.group) { updateBadge('This kid is only on this phone (not in the sheet)'); return; }
+  const c = lastCounts || {};
+  enqueue({ type: 'gem', sessionDate: sessionDate(), name: kid.name, group: kid.group,
+    orange: c.Orange || 0, green: c.Green || 0, blue: c.Blue || 0, red: c.Red || 0, diamond: c.Diamond || 0, xp: amount });
+};
+
+// Replace Spend XP: local update + Purchases row
+document.getElementById('spendBtn').onclick = () => {
+  if (!selectedKidId) return;
+  const kid = kids.find(k => k.id === selectedKidId);
+  const left = kid.xpEarned - kid.xpSpent;
+  const amount = parseInt(prompt(`How much XP to spend for ${kid.name}? (Left: ${left})`));
+  if (!amount || amount <= 0) return;
+  if (amount > left) { alert('Not enough XP left!'); return; }
+  kid.xpSpent += amount; saveKids(); updateStatsDisplay();
+  if (kid.group) enqueue({ type: 'purchase', date: sessionDate(), name: kid.name, group: kid.group, points: amount, note: 'app' });
+  alert(`Spent ${amount} XP. Left: ${kid.xpEarned - kid.xpSpent}`);
+};
+
+// Settings
+document.getElementById('settingsBtn').onclick = () => {
+  const st = getSettings();
+  document.getElementById('setUrl').value = st.url || '';
+  document.getElementById('setKey').value = st.key || '';
+  document.getElementById('setLeader').value = st.leader || '';
+  document.getElementById('setDate').value = st.date || sundayISO();
+  document.getElementById('settingsBox').classList.toggle('hidden');
+};
+document.getElementById('saveSettingsBtn').onclick = () => {
+  const d = document.getElementById('setDate').value;
+  localStorage.setItem(SET_KEY, JSON.stringify({
+    url: document.getElementById('setUrl').value.trim(), key: document.getElementById('setKey').value.trim(),
+    leader: document.getElementById('setLeader').value.trim(), date: d === sundayISO() ? '' : d }));
+  document.getElementById('settingsBox').classList.add('hidden');
+  fetchSummary().then(flushQueue);
+};
+document.getElementById('syncBtn').onclick = () => flushQueue().then(fetchSummary);
+
+// ===== Print page =====
+function printKids() {
+  const sm = getSummary();
+  if (sm && sm.kids) return sm.kids.map(k => ({ name: k.name, group: k.group, left: k.left, title: k.title }));
+  return kids.filter(k => k.group).map(k => ({ name: k.name, group: k.group, left: k.xpEarned - k.xpSpent, title: k.title || '' }));
+}
+function pvNote() {
+  const sm = getSummary();
+  document.getElementById('pvNote').textContent = sm ? 'Points as of ' + new Date(sm.updated).toLocaleString() + '. Tap Sync first for the latest.' : 'Not synced with the sheet yet. Showing this phone\'s data.';
+}
+function showGroups() {
+  const all = printKids(), dt = new Date(sessionDate() + 'T12:00').toLocaleDateString();
+  document.getElementById('pvBody').innerHTML = GROUPS.map(g => {
+    const rows = all.filter(k => k.group === g).map(k =>
+      `<tr style="background:${GROUP_COLORS[g]}"><td>${esc(k.name)}</td><td style="text-align:right"><b>${esc(k.left)}</b></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>`).join('');
+    return `<div class="pg"><h2>Kidz Rock Club - ${g} - Treasure Room</h2><div>Date: ${dt} &nbsp; Leader: ____________</div>
+      <table><tr><th>Name</th><th>Points Left</th><th>Spent</th><th>New Left</th><th>Initials</th></tr>${rows}</table></div>`;
+  }).join('');
+  pvNote();
+}
+function showDoor() {
+  const all = printKids();
+  const rows = GROUPS.flatMap(g => all.filter(k => k.group === g)).map(k =>
+    `<tr style="background:${GROUP_COLORS[k.group]}"><td>${esc(k.group)}</td><td>${esc(k.name)}</td><td style="text-align:right"><b>${esc(k.left)}</b></td><td>${esc(k.title)}</td></tr>`).join('');
+  document.getElementById('pvBody').innerHTML = `<div class="pg door"><h2>💎 Treasure Room - Points to Spend</h2>
+    <table><tr><th>Group</th><th>Name</th><th>Points Left</th><th>Level</th></tr>${rows}</table></div>`;
+  pvNote();
+}
+document.getElementById('printBtn').onclick = () => { document.body.classList.add('printing'); showGroups(); window.scrollTo(0, 0); };
+document.getElementById('pvGroups').onclick = showGroups;
+document.getElementById('pvDoor').onclick = showDoor;
+document.getElementById('pvPrint').onclick = () => window.print();
+document.getElementById('pvClose').onclick = () => document.body.classList.remove('printing');
+
+window.addEventListener('online', flushQueue);
+if (getSummary()) applySummary(getSummary());
+updateBadge();
+fetchSummary().then(flushQueue);
+setInterval(() => { if (getQueue().length) flushQueue(); }, 60000);
+
 </script>
 </body>
 </html>
