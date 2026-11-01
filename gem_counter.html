@@ -244,7 +244,7 @@ const TIER_LEVELS = {"1": [[0, "Tiny Prospector"],      [100, "Dirt Digger"],   
 // GROUP_TIER: which tier (row block in TIER_LEVELS) each group uses.
 const GROUP_TIER = { Pebbles: 1, Granites: 2, Quartz: 3, Diamonds: 4 };
 
-//Get the group tier
+// Get the group tier
 // Input: a kid object. Output: the tier number for that kid's group.
 // If the kid has no group (added only on this phone), it falls back to tier 2.
 function tierFor(kid) { return GROUP_TIER[kid && kid.group] || 2; }
@@ -259,41 +259,10 @@ function calculateLevel(xp, kid) {
   return level;
 }
 
-//Get the level title from array
+// Get the level title from array
 // Input: level number and kid. Output: the title text, e.g. "Ore Spotter" ("" if not found).
 function levelTitle(level, kid) { const L = TIER_LEVELS[tierFor(kid)]; return (L[level - 1] || [0, ''])[1]; }
 
-// NOTE: everything between BEGIN/END OLD CODE is commented out, so the browser ignores it.
-//BEGIN OLD CODE
-//let kids = [];
-//let selectedKidId = null;
-//let lastTotalXP = 0;
-//let cvReady = false;
-//let stream = null;
-//let capturedImageData = null;
-//
-//function loadKids() {
-//  const raw = localStorage.getItem(STORAGE_KEY);
-//  kids = raw ? JSON.parse(raw) : [];
-//  renderKidSelect();
-//}
-//
-//function saveKids() {
-//  localStorage.setItem(STORAGE_KEY, JSON.stringify(kids));
-//}
-//
-//function calculateLevel(xp) {
-//  let level = 1;
-//  for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {
-//    if (xp >= LEVEL_THRESHOLDS[i]) level = i + 1;
-//    else break;
-//  }
-//  return Math.min(level, LEVEL_THRESHOLDS.length);
-//}
-//END OLD CODE
-
-// FIX (v6.2): these core variables and loadKids()/saveKids() were missing (only the commented-out
-// copies above existed), which stopped the app at startup. Restored from the old block.
 // kids = the kid list; selectedKidId = kid picked in the drop-down; lastTotalXP = total from the last count;
 // cvReady = OpenCV finished loading; stream = the live camera; capturedImageData = pixels of the photo to count.
 let kids = [];
@@ -315,7 +284,7 @@ function saveKids() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(kids));
 }
 
-//Select the kid in the drop down after populating drop drown with data from the spreadsheet.
+// Select the kid in the drop down after populating drop drown with data from the spreadsheet.
 // Input: none (uses the global kids list and selectedKidId). Output: rebuilds the drop-down on screen.
 function renderKidSelect() {
   const sel = document.getElementById('kidSelect');
@@ -331,7 +300,7 @@ function renderKidSelect() {
   updateStatsDisplay();
 }
 
-//Update the stats for the selected kid.
+// Update the stats for the selected kid.
 // Shows Level, XP Earned, XP Spent and XP Left for the selected kid, or hides the stats box if no kid is picked.
 function updateStatsDisplay() {
   const statsDiv = document.getElementById('kidStats');
@@ -349,7 +318,7 @@ function updateStatsDisplay() {
   statsDiv.classList.remove('hidden');
 }
 
-//Add New Kid
+// Add New Kid
 // Asks for a first name and adds a kid on this phone only (no group, so it is not sent to the sheet).
 // id is the current time in milliseconds, which makes a unique id.
 function addKid() {
@@ -368,7 +337,7 @@ function addKid() {
   renderKidSelect();
 }
 
-//Pick a Kid from the drop down
+// Pick a Kid from the drop down
 // Input: id of the kid picked in the drop-down. Remembers the choice and refreshes the stats
 // and the Add XP button label.
 function selectKid(id) {
@@ -382,12 +351,12 @@ function selectKid(id) {
   }
 }
 
-//add new kid on click of the button
+// Add new kid on click of the button
 // Hook the buttons/drop-down to the functions above (onclick = run this when tapped)
 document.getElementById('addKidBtn').onclick = addKid;
 document.getElementById('kidSelect').onchange = (e) => selectKid(e.target.value);
 
-//Kid spent points ======NOT TESTED YET===============
+// Kid spent points ======NOT TESTED YET===============
 // (This handler is replaced later in Script 2 by a version that also sends a Purchases row to the sheet.)
 document.getElementById('spendBtn').onclick = () => {
   if (!selectedKidId) return;
@@ -404,7 +373,7 @@ document.getElementById('spendBtn').onclick = () => {
   alert(`Spent ${amount} XP. Left: ${kid.xpEarned - kid.xpSpent}`);
 };
 
-//Add gem counting XP to the Kid
+// Add gem counting XP to the Kid
 // Input: amount = XP from the gem count. Adds it to the selected kid, saves, and shows a
 // LEVEL UP banner (plus a phone notification if allowed) when the level goes up.
 // Script 2 wraps this function so the same count is also queued for the sheet.
@@ -416,6 +385,7 @@ function addXPToKid(amount) {
   const kid = kids.find(k => k.id === selectedKidId);
   const oldLevel = kid.level;
   kid.xpEarned += amount;
+
   // FIX (v6.2): pass the kid so the right tier scale is used (Pebbles = little-kid scale)
   const newLevel = calculateLevel(kid.xpEarned, kid);
   kid.level = newLevel;
@@ -440,7 +410,7 @@ function addXPToKid(amount) {
 
 // ========== Camera & Counting (from previous version) ==========
 
-//Camera ready
+// Camera ready
 // Called by the opencv.js script tag when the library has finished loading.
 // cvReady = true tells the rest of the code it is now safe to count gems.
 function onOpenCvReady() {
@@ -449,13 +419,13 @@ function onOpenCvReady() {
   console.log('OpenCV ready');
 }
 
-//Start the Camera
+// Start the Camera
 // Asks the phone for the back ("environment") camera and shows it in the video box.
 // Needs HTTPS (GitHub Pages is HTTPS), otherwise the browser blocks the camera.
 document.getElementById('startBtn').onclick = async () => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      //TODO: adjust height
+      // TODO: adjust height maybe - too big on my phone
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
@@ -468,7 +438,7 @@ document.getElementById('startBtn').onclick = async () => {
   }
 };
 
-//Capture Photo
+// Capture Photo
 // Copies the current video frame onto the hidden canvas, saves its pixels in
 // capturedImageData, and then counts the gems.
 document.getElementById('captureBtn').onclick = () => {
@@ -483,11 +453,11 @@ document.getElementById('captureBtn').onclick = () => {
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-  //Analyze the Image
+  // Analyze the Image
   processImage();
 };
 
-//If using phone camera rather than website and opencv
+// If using phone camera rather than website and opencv
 // Same as Capture, but the picture comes from a file/photo chosen on the phone.
 document.getElementById('fileInput').onchange = (e) => {
   const file = e.target.files[0];
@@ -506,7 +476,7 @@ document.getElementById('fileInput').onchange = (e) => {
   img.src = URL.createObjectURL(file);
 };
 
-//Retry picture taking (New Photo Button)
+// Retry picture taking (New Photo Button)
 // Resets the screen so a new photo can be taken: hides results and shows the camera again.
 document.getElementById('retryBtn').onclick = () => {
   document.getElementById('results').classList.add('hidden');
@@ -523,7 +493,7 @@ document.getElementById('retryBtn').onclick = () => {
 document.getElementById('reprocessBtn').onclick = processImage;
 { const b=document.getElementById('addXpBtn'); if (b) b.onclick = () => addXPToKid(lastTotalXP); }
 
-//process the image error handler if processing failed.
+// Process the image error handler if processing failed.
 // Safety wrapper: runs the real work (processImageInner) and, if anything fails,
 // shows the error message on screen instead of silently stopping.
 function processImage() {
@@ -563,7 +533,6 @@ var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK
 // GEM_DRAW: outline color (R,G,B) used when drawing each gem type on the result image
 var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
-//Ugh. Pain in the rear function....Hues and Saturation and Brightness can change the color "seen"
 // Inputs: cv = OpenCV library, srcRGBA = the photo, minArea = smallest blob in pixels,
 // P = settings that override GEM_P. Output: {counts, dets (each gem found), out (picture with outlines),
 // hsv (color copy used by the tap-to-read tool), R, R1 (typical gem radius)}.
@@ -581,7 +550,7 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
   const bl = keep(new cv.Mat()); cv.medianBlur(rgb, bl, 5);
   const hsv = keep(new cv.Mat()); cv.cvtColor(bl, hsv, cv.COLOR_RGB2HSV);
   const rows = Hh, cols = W, N = rows * cols;
-  // Copy the H, S and V numbers into plain arrays (faster to loop over)
+  // Copy the H, S and V numbers into plain arrays (makes it faster to loop over)
   const hd = hsv.data, H = new Uint8Array(N), S = new Uint8Array(N), V = new Uint8Array(N);
 
   for (let p = 0; p < N; p++) { H[p] = hd[3*p]; S[p] = hd[3*p+1]; V[p] = hd[3*p+2]; }
@@ -649,6 +618,7 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
 
   // clean(): removes specks (open), fills small gaps (close), and keeps only blobs big enough to be gems.
   // Blobs touching the photo edge are dropped if they look like thin strips.
+  // User needs to ensure the whole mat is taken in the picture.
   function clean(arr, kClose) {
     const m = fromArr(arr); 
     cv.morphologyEx(m, m, cv.MORPH_OPEN, ell(3)); 
@@ -656,7 +626,7 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
     const cs = new cv.MatVector(), hi = new cv.Mat(); 
     cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     const out = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
-    //Draw the contours around each gem found (helps to see how the app is counting)
+    // Draw the contours around each gem found (helps to see how the app is counting)
     for (let i = 0; i < cs.size(); i++) { 
             const c = cs.get(i); 
             const a = cv.contourArea(c); 
@@ -708,7 +678,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
 
   masks['Diamond'] = clean(clear, 9);
 
-  // connected components helper
+  // Connected components helper
   // cc(): connected components = gives every separate blob its own number. Returns [how many, label for each pixel]
   function cc(arr) { 
     const m = fromArr(arr); 
@@ -725,7 +695,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
     return Float32Array.from(d.data32F); 
   }
   
-  // typical radius of the gem
+  // Typical radius of the gem
   // Step 5: collects each blob's center depth (mx) and size (mxa) to estimate R, the typical gem radius
   const mx = [], mxa = [];
   for (const nm of Object.keys(masks)) { 
@@ -756,6 +726,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
   
   // RS = a scaled radius used by v5 separation rules
   const RS = P.RS_K ? P.RS_K * R : R;
+
   // Step 6 (v5 only, when P.BASK is on): large blue areas touching the photo edge are the basket, not gems
   let BASK = null;
   if (P.BASK) { 
@@ -851,7 +822,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
     masks['CoolG'] = gpart; masks['CoolA'] = apart; 
   }
 
-  // split by distance peaks
+  // Split by distance peaks
   // Step 8 split(): finds gem centers ("peaks" in the distance map), decides which peaks belong to the
   // same gem (connected by a thick "neck"), then uses watershed to cut the blob between gems.
   // Input: a mask. Output: a list of masks, one per gem.
@@ -947,7 +918,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
       groups.get(gid[i]).push(i); 
     }
 
-    // markers: each gem group gets its own number; background = 1; watershed fills in the rest
+    // Markers: each gem group gets its own number; background = 1; watershed fills in the rest
     const markers = keep(cv.Mat.zeros(rows, cols, cv.CV_32SC1)); 
     const MK = markers.data32S;
     const glist = [...groups.values()];
@@ -971,6 +942,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
         dnM.data.set(dn);
         cv.watershed(dnM, markers); 
         const WS = markers.data32S;
+
         // ASSIGN: pixels between two gems that should be apart go to whichever center is closer
         if (P.ASSIGN) for (const [i, j] of cut) {
           const gi = glist.findIndex(m => m.includes(i)) + 2, gj = glist.findIndex(m => m.includes(j)) + 2; 
@@ -1000,6 +972,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
 
         return outR;
       }
+
   // Run split() on each color mask and collect every piece as a region {nm = color, r = mask, a = area}
   const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
   let regs = [];
@@ -1023,7 +996,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
     }
   }
 
-  // merge
+  // Merge
   // Step 9: solidity = area / area of its convex hull (1.0 = solid round shape, low = ragged or two blobs)
   function solidity(r) { 
     const m = fromArr(r); 
@@ -1105,9 +1078,11 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
         regs.splice(i, 1); changed = true; break; }
     }
   }
+
   // Step 10: R1 = typical gem radius measured again from the final regions
   const eq = regs.filter(o => o.a >= 0.15 * gem).map(o => Math.sqrt(o.a / Math.PI));
   const R1 = eq.length ? median(eq) : R;
+
   // WARM_S (v5): pale orange/red pieces near a clear gem are really reflections of the clear gem
   if (P.WARM_S) { 
     const cen0 = o => { let sx = 0, sy = 0; 
@@ -1226,7 +1201,7 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
 // GEM_V5: the stronger settings used when a photo looks "fragmented" (gems broken into many pieces)
 var GEM_V5 = {CL_D:1.3, CL_SOL:0.75, R_WM:1, RS_K:0.7, KEEP_NP:30, R_W:50, BASK:3, WARM_S:120, RED_S:145, MIN_FRAC_D:0.3, WARM_NEAR:1.3};
 
-// version 5: run the version 4 pipeline; if its result looks fragmented (many tiny or oversized pieces), rerun with the robust version 5 settings.
+// Version 5: run the version 4 pipeline; if its result looks fragmented (many tiny or oversized pieces), rerun with the robust version 5 settings.
 // Input/Output same as detectGemsCore. Counts with normal settings first; if 8 or more pieces are
 // much smaller or bigger than the typical piece, it counts again with GEM_V5. mode tells which one was used.
 function detectGems(cv, srcRGBA, minArea, P) {
@@ -1253,6 +1228,7 @@ const GEM_COLORS = [
 
 // lastCounts: the most recent count per color (the -/+ buttons change it)
 let lastCounts = null;
+
 // Shows one row per color (count x points = subtotal), the total, and the Add XP button.
 // Saves the total in lastTotalXP so the Add XP button knows how much to add.
 function renderResults() {
@@ -1324,6 +1300,7 @@ if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
 </script>
+
 <script>
 // ==========================================================================
 // SCRIPT 2: Google Sheet sync. How it works:
@@ -1336,13 +1313,17 @@ if ('Notification' in window && Notification.permission === 'default') {
 // ========== version6: Google Sheet sync (Apps Script) + offline queue + printing ==========
 
 // Paste your Apps Script /exec link between the quotes. Never put the Key here; it stays on each phone.
+
 // DEFAULT_URL: the web app link. Safe to put in public code because it does nothing without the Key.
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwa5XoeGrPwh1y-98JIPzTGllwZFvlnTelpr7PWYKuMU1kOB4VQnXC9ZVVdg-N44fM/exec';
+
 // localStorage drawer names: settings (url, key, leader, date), the offline queue, and the last roster from the sheet
 const SET_KEY = 'krcSettings_v6', QUEUE_KEY = 'krcQueue_v6', SUMMARY_KEY = 'krcSummary_v6';
+
 // Group order and background colors used on the print pages
 const GROUPS = ['Pebbles', 'Granites', 'Quartz', 'Diamonds'];
 const GROUP_COLORS = { Pebbles: '#FFF5CE', Granites: '#DDE8CB', Quartz: '#DEE6EF', Diamonds: '#FFD7D7' };
+
 // Read saved settings from this phone. Output: {url, key, leader, date} or {} if nothing saved yet.
 function getSettings() { 
   try { 
@@ -1431,6 +1412,7 @@ async function fetchSummary() {
 // _flushing = an upload is running right now, so a second one must not start (that caused the 3rd-save bug).
 // _flushAgain = a new save arrived while uploading, so check the queue once more before finishing.
 let _flushing = false, _flushAgain = false;
+
 // Sends waiting items to the sheet one at a time, oldest first. The queue is re-read from the phone
 // each time, and an item is removed (by its clientId) only after the sheet answers ok.
 // If a send fails, it stops and leaves the rest for the next retry.
@@ -1455,6 +1437,7 @@ async function flushQueue() {
     updateBadge('All saved to sheet');
   } finally { _flushing = false; }
 }
+
 // Adds a save to the offline queue with a unique clientId and the leader name, then tries to upload.
 function enqueue(item) {
   item.clientId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -1500,6 +1483,7 @@ document.getElementById('settingsBtn').onclick = () => {
   document.getElementById('setDate').value = st.date || sundayISO();
   document.getElementById('settingsBox').classList.toggle('hidden');
 };
+
 // Save settings: stores the values on this phone (the Key stays here, never in the code),
 // then downloads the roster and uploads anything waiting.
 document.getElementById('saveSettingsBtn').onclick = () => {
@@ -1510,6 +1494,7 @@ document.getElementById('saveSettingsBtn').onclick = () => {
   document.getElementById('settingsBox').classList.add('hidden');
   fetchSummary().then(flushQueue);
 };
+
 // Sync button: upload waiting saves first, then download the latest roster.
 document.getElementById('syncBtn').onclick = () => flushQueue().then(fetchSummary);
 
@@ -1520,11 +1505,13 @@ function printKids() {
   if (sm && sm.kids) return sm.kids.map(k => ({ name: k.name, group: k.group, left: k.left, title: k.title }));
   return kids.filter(k => k.group).map(k => ({ name: k.name, group: k.group, left: k.xpEarned - k.xpSpent, title: k.title || '' }));
 }
+
 // pvNote(): shows how fresh the printed points are
 function pvNote() {
   const sm = getSummary();
   document.getElementById('pvNote').textContent = sm ? 'Points as of ' + new Date(sm.updated).toLocaleString() + '. Tap Sync first for the latest.' : 'Not synced with the sheet yet. Showing this phone\'s data.';
 }
+
 // showGroups(): one paper Treasure Room purchase sheet per group, with blank columns for pencil
 function showGroups() {
   const all = printKids(), dt = new Date(sessionDate() + 'T12:00').toLocaleDateString();
@@ -1536,6 +1523,7 @@ function showGroups() {
   }).join('');
   pvNote();
 }
+
 // showDoor(): the door poster listing everyone's points left and level
 function showDoor() {
   const all = printKids();
@@ -1545,6 +1533,7 @@ function showDoor() {
     <table><tr><th>Group</th><th>Name</th><th>Points Left</th><th>Level</th></tr>${rows}</table></div>`;
   pvNote();
 }
+
 // Print view buttons
 document.getElementById('printBtn').onclick = () => { document.body.classList.add('printing'); showGroups(); window.scrollTo(0, 0); };
 document.getElementById('pvGroups').onclick = showGroups;
