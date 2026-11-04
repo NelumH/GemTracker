@@ -1,0 +1,1813 @@
+<!-- ========================================================================== -->
+<!-- KRC Treasure Box Gem Counter and Tracker (version 6.3) -->
+<!-- One single file: page layout (HTML), look (CSS in the style block), and two script blocks: -->
+<!--   Script 1 = kid list, levels, camera, and OpenCV gem detection -->
+<!--   Script 2 = Google Sheet sync (Apps Script), offline queue, and print pages -->
+<!-- FIX (v6.3): Script 0 (new, runs first) = on-device database (IndexedDB) so the app works 100% offline -->
+<!-- FIX (v6.3): installable app (PWA): manifest.json + sw.js + icons + local opencv.js live next to this file -->
+<!-- ========================================================================== -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <!--So the code isn't easily searchable-->
+    <meta name="robots" content="noindex, nofollow">
+    <title>Treasure Box Gem Counting and Tracking - Kids Rock Club</title>
+    <!-- FIX (v6.3): app install info. manifest.json tells Android "this is an app" (Add to Home screen). -->
+    <!-- The apple-* lines do the same for an iPad. theme-color colors the phone's top bar. -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a1a2e">
+    <link rel="icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Gem Tracker">
+
+    <!--Look and Feel Style Sheet-->
+    <style>
+      :root {
+        --bg: #1a1a2e;
+        --card: #16213e;
+        --accent: #0f3460;
+        --gold: #e94560;
+        --text: #eee;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        margin: 0;
+        padding: 10px;
+        text-align: center;
+      }
+      h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
+      h2, h3 { font-size: 1.2em; margin: 15px 0 5px; }
+      .container { max-width: 500px; margin: 0 auto; }
+      video, canvas { max-width: 100%; border-radius: 12px; border: 3px solid #ffd700; background: #000; }
+      button {
+        background: #ffd700;
+        color: #1a1a2e;
+        border: none;
+        padding: 14px 24px;
+        font-size: 1.1em;
+        font-weight: bold;
+        border-radius: 30px;
+        margin: 8px;
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      }
+      button:active { transform: scale(0.97); }
+      button:disabled { opacity: 0.5; }
+      .card {
+        background: var(--card);
+        border-radius: 16px;
+        padding: 15px;
+        margin: 15px 0;
+      }
+      .gem-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 1.1em; }
+      .gem-color { width: 24px; height: 24px; border-radius: 50%; display: inline-block; margin-right: 8px; border: 2px solid #fff; }
+      .total { font-size: 1.6em; color: #ffd700; font-weight: bold; margin-top: 10px; }
+      .loading { color: #ffd700; font-style: italic; }
+      .instructions { background: #0f3460; padding: 12px; border-radius: 12px; font-size: 0.95em; margin: 10px 0; }
+      input, select { padding: 8px; border-radius: 8px; border: none; margin: 4px; font-size: 1em; }
+      .level-up {
+          background: linear-gradient(45deg, #ffd700, #ff6b6b);
+          color: #1a1a2e;
+          padding: 15px;
+          border-radius: 12px;
+          font-weight: bold;
+          margin: 10px 0;
+          animation: pulse 1s infinite;
+      }
+      @keyframes pulse { 50% { transform: scale(1.05); } }
+      .hidden { display: none !important; }
+      #syncCard input { width: 95%; }
+      #syncBadge { font-size: .9em; opacity: .9; }
+      #printView { display:none; background:#fff; color:#000; text-align:left; font-family: Arial, sans-serif; }
+      #printView table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
+      #printView th, #printView td { border: 1px solid #000; padding: 6px 8px; font-size: 13pt; }
+      #printView .pg { page-break-after: always; break-after: page; padding: 10px; }
+      #printView .pg:last-child { page-break-after: auto; }
+      #printView h2 { margin: 0 0 6px; font-size: 18pt; color:#000; }
+      #printView .door td, #printView .door th { font-size: 18pt; border-style: dashed; }
+      #printView .blank { width: 16%; }
+      #printView tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body.printing { background:#fff; color:#000; }
+      body.printing .container { display:none; }
+      body.printing #printView { display:block; }
+      @media print { .noprint { display:none !important; } body { background:#fff; padding:0; } }
+      @page { margin: 0.4in; }
+      /* FIX (v6.3): pop-up box (modal) used by Add Kid instead of the browser's prompt() */
+      .modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 50; }
+      .modal .card { width: 92%; max-width: 420px; text-align: left; }
+      .modal input, .modal select { width: 95%; font-size: 1.1em; }
+      #backupBox button { padding: 10px 16px; font-size: 1em; }
+    </style>
+</head>
+
+<body>
+  <!-- Everything the leader sees on the main screen lives inside this container -->
+  <div class="container">
+    <h1>⛏️ Kids Rock Club Gem Counter and Tracker 💎</h1>
+
+    <!-- Kid Management -->
+    <div class="card" id="kidSection">
+      <h3>Kids</h3><br>
+      <i>Private on this device unless Google Sheet is used - accessible only with Secret Key.</i><br>
+      <select id="kidSelect"><option value="">-- Select Kid --</option></select>
+      <button id="addKidBtn" type="button">+ Add Kid</button>
+
+      <!-- FIX (v6.3): Add Kid pop-up. Asks for name AND group, so the new kid can be sent to the sheet. -->
+      <div id="addKidModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="card">
+          <h3>Add a Kid</h3>
+          <label>First name (and last initial if two kids share a name):<br><input id="newKidName" autocomplete="off"></label><br>
+          <label>Group:<br>
+            <select id="newKidGroup">
+              <option value="Pebbles">Pebbles (PreK)</option>
+              <option value="Granites">Granites (K-1st)</option>
+              <option value="Quartz">Quartz (2nd-3rd)</option>
+              <option value="Diamonds">Diamonds (4th-5th)</option>
+            </select></label>
+          <div id="newKidMsg" style="color:#ff8080;min-height:1.2em"></div>
+          <button id="newKidSave" type="button">Save Kid</button>
+          <button id="newKidCancel" type="button" style="background:#888">Cancel</button>
+        </div>
+      </div>
+      <div id="kidStats" class="hidden">
+        <div class="stat-row"><span>Level:</span> <strong id="statLevel">1</strong></div>
+        <div class="stat-row"><span>XP Earned:</span> <strong id="statEarned">0</strong></div>
+        <div class="stat-row"><span>XP Spent:</span> <strong id="statSpent">0</strong></div>
+        <div class="stat-row"><span>XP Left:</span> <strong id="statLeft">0</strong></div>
+        <button id="spendBtn">Spend XP</button>
+      </div>
+    </div>
+    
+    <!-- Google Sheet sync + maybe printing? Need to test printing -->
+    <div class="card" id="syncCard">
+      <h3>Google Sheet Linkage</h3>
+      <div id="syncBadge">Not connected</div>
+      <!-- FIX (v6.3): renamed to "Sync now"; lastSync line shows when the sheet backup last worked -->
+      <div id="lastSync" style="font-size:.85em;opacity:.8">Last synced: never</div>
+      <button id="syncBtn">🔄 Sync now</button>
+      <button id="printBtn">🖨️ Print</button>
+      <button id="settingsBtn">⚙️ Settings</button>
+      <!-- FIX (v6.3): offline backup file. Export saves everything on this tablet to a .json file; -->
+      <!-- Import reads one back (merges, never double counts). -->
+      <div id="backupBox">
+        <button id="exportBtn" type="button">💾 Export backup</button>
+        <button id="importBtn" type="button">📂 Import backup</button>
+        <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+      </div>
+      <div id="settingsBox" class="hidden" style="text-align:left">
+        <label>Apps Script web app URL:<br><input id="setUrl" placeholder="https://script.google.com/macros/s/AKfycbw36VKTMvcVgJBdwFxX9A3io0MsCSlyUS4LzACnicQ7Qhdx7UzfZoXVEq84I7-lZYlu/exec"></label><br>
+        <label>Key (Mandatory for syncing):<br><input id="setKey"></label><br>
+        <label>Leader name:<br><input id="setLeader"></label><br>
+        <label>Session date:<br><input id="setDate" type="date"></label><br>
+        <button id="saveSettingsBtn">Save settings</button>
+      </div>
+    </div>
+    <!-- Instructions shown to leaders above the camera -->
+    <p class="instructions">
+      Select a kid, then capture the treasure using the black felt lined bin. Points become XP. Level 
+      updates automatically with Level Up notifications. Point the camera at the <strong>inside</strong>
+      of the bin (good lighting helps!). Spread the gems out a bit so they don't touch too much. 
+      Tap <strong>Capture & Count</strong>.
+    </p>
+
+    <!-- Live camera preview (playsinline keeps iPhones from going full screen) -->
+    <video id="video" autoplay playsinline muted></video>
+    <br>
+    <!--Buttons for Camera Capture-->
+    <button id="startBtn">Start Camera</button>
+    <button id="captureBtn" disabled>📸 Capture & Count</button>
+    <button id="retryBtn" class="hidden">🔄 New Photo</button>
+    <p style="margin:10px 0; font-size:0.9em;">Or take a photo with your normal camera app and upload it:</p>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" style="margin:8px;">
+
+    <!-- "canvas" (hidden) holds the raw photo; "outputCanvas" shows the photo with gem outlines drawn on it -->
+    <canvas id="canvas" class="hidden"></canvas>
+    <canvas id="outputCanvas" class="hidden" style="max-width:100%; border-radius:12px; margin-top:10px;"></canvas>
+
+    <!--Camera OpenCV code can be slow to open-->
+    <div id="status" class="loading hidden">Loading OpenCV... (first time may take a few seconds)</div>
+
+    <!-- Results card: one row per gem color with -/+ buttons, the total, and the Add XP button -->
+    <div id="results" class="card hidden">
+      <h2>Gems Found!</h2>
+      <div id="gemList"></div>
+      <div class="total" id="totalPoints">Total: 0 XP</div>
+      <button id="addXpBtn">➕ Add XP to Kid</button>
+      <p style="font-size:0.85em; opacity:0.8;">Approximate counts. Adjust and re-count if needed - until code works reliably still in pre-release phase</p>
+    </div>
+
+    <!-- Level-up banner (hidden until a kid levels up; disappears after 5 seconds) -->
+    <div id="levelUpMsg" class="level-up hidden"></div>
+    
+    <!-- Fine-tune sliders: Min gem size ignores specks smaller than this; Sensitivity changes how colorful a spot must be to count as a gem -->
+    <div class="sliders card hidden" id="controls">
+      <h3>Fine-tune</h3>
+      <label>Min gem size (pixels): <input type="range" id="minArea" min="50" max="2000" value="200"></label>
+      <label>Sensitivity: <input type="range" id="sensitivity" min="20" max="100" value="60"></label>
+      <button id="reprocessBtn">Re-count</button>
+    </div>
+  </div>
+
+  <!--Printing not tested yet-->
+  <!-- Print view: covers the page when Print is tapped. Items marked "noprint" are hidden on paper -->
+  <div id="printView">
+    <div class="noprint" style="padding:10px;background:#eee">
+      <button id="pvGroups">Purchase sheets (all groups)</button>
+      <button id="pvDoor">Door poster</button>
+      <button id="pvPrint">Print</button>
+      <button id="pvClose">Close</button>
+      <div id="pvNote" style="font-size:11pt"></div>
+    </div>
+    <div id="pvBody"></div>
+  </div>
+
+<!--Camera Open CV code from openvc.org-->
+<!-- opencv.js is big (~8 MB) and loads in the background (async). When it finishes, onOpenCvReady() runs -->
+<!-- FIX (v6.3): opencv.js now loads from the same folder (no internet needed). The service worker keeps a copy. -->
+<!-- Old CDN line: <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script> -->
+<script async src="opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
+
+<script>
+// ==========================================================================
+// FIX (v6.3) SCRIPT 0: on-device database (IndexedDB) + install helper
+// Why: localStorage can be cleared by the tablet when space is low and is small (about 5 MB).
+// IndexedDB is the browser's real database; with navigator.storage.persist() the tablet is asked
+// not to clear it. KV keeps a copy in memory so the rest of the code can read it instantly
+// (KV.get) and every change (KV.set) is also written to IndexedDB in the background.
+// First run: anything found in the old localStorage drawers is copied over (migration).
+// ==========================================================================
+const KV = (function () {
+  const DB_NAME = 'krcGemTracker', STORE = 'kv';
+  // These are the old localStorage drawer names; they become keys in the database
+  const KEYS = ['miningClubKids_v1', 'krcSettings_v6', 'krcQueue_v6', 'krcSummary_v6', 'krcLastSync_v6', 'krcSent_v6'];
+  const mem = {};       // in-memory copy (fast reads)
+  let db = null;        // the open database (null if IndexedDB is not available)
+  // Open (or create) the database. Output: a Promise for the db, or null if it fails.
+  function open() {
+    return new Promise(res => {
+      try {
+        const rq = indexedDB.open(DB_NAME, 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore(STORE);
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  // Read every saved key into memory
+  function readAll() {
+    return new Promise(res => {
+      const tx = db.transaction(STORE, 'readonly'), st = tx.objectStore(STORE);
+      const rq = st.openCursor();
+      rq.onsuccess = () => { const c = rq.result; if (c) { mem[c.key] = c.value; c.continue(); } else res(); };
+      rq.onerror = () => res();
+    });
+  }
+  // Write one key to the database (background). Falls back to localStorage if IndexedDB is missing.
+  function persist(k, v) {
+    if (!db) { try { localStorage.setItem(k, v == null ? '' : JSON.stringify(v)); } catch (e) {} return; }
+    try { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(v, k); } catch (e) { console.warn('save failed', e); }
+  }
+  // ready: a Promise that finishes after the database is open, loaded and migrated.
+  const ready = (async () => {
+    db = await open();
+    if (db) await readAll();
+    // Migration: copy old localStorage values that are not in the database yet
+    KEYS.forEach(k => {
+      if (mem[k] !== undefined) return;
+      try { const raw = localStorage.getItem(k); if (raw) { mem[k] = JSON.parse(raw); persist(k, mem[k]); } } catch (e) {}
+    });
+    // Ask the tablet to keep this data even when storage is low (Chrome usually says yes for installed apps)
+    try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+  })();
+  return {
+    ready,
+    get: (k) => (mem[k] === undefined ? null : JSON.parse(JSON.stringify(mem[k]))),   // copy, so callers can't change the saved one by accident
+    set: (k, v) => { mem[k] = JSON.parse(JSON.stringify(v)); persist(k, mem[k]); }
+  };
+})();
+
+// FIX (v6.3): register the service worker (sw.js) = the part that makes the app open with no internet.
+// Only works over https (GitHub Pages) or localhost; quietly skipped otherwise.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW failed', e)));
+}
+</script>
+<script>
+// ==========================================================================
+// SCRIPT 1: kids, levels, camera, and gem detection
+// ==========================================================================
+
+// lastHsv holds a color copy of the last photo that was counted, stored as hue, saturation and brightness (HSV) instead of red, 
+// green and blue. The detection code gives it back after each count (line 677), and the old copy is deleted first so it doesn't 
+// eat phone memory. It's only used for a tuning helper. When you tap the result image, the code at lines 692–701 reads the 
+// color at that spot and shows something like Tapped color: H=92 S=180 V=140 in the status line. That tells you whether a gem's
+// hue lands in the green, blue or other color range, which is how you'd figure out why a teal gem got called green, for example. 
+// It has no effect on the counts themselves.
+var lastHsv = null;
+
+// Kid Database (localStorage - private to this device): used as a safety net.
+// . Waiting saves: if Wi-Fi drops, saves wait on the phone until they reach the sheet. Without this, a count made during an outage would be lost.
+// . Settings: each phone remembers its key, leader name and session date. To keep the key off my public GitHub page.
+// . Kid list and points: the last copy synced from the sheet, so the app opens instantly and still works offline.
+// Name of the localStorage "drawer" where the kid list is saved on this phone
+const STORAGE_KEY = 'miningClubKids_v1';
+
+// Level thresholds (XP required to reach that level). Easy to customize.
+// Next Version: make this a lookup from the spreadsheet?
+// TIER_LEVELS: for each tier ("1"-"4"), a list of 20 levels in order.
+// Each entry is [total XP needed to reach that level, level title].
+// Example: a Pebble with 920 XP has passed 910 (level 8) but not 1080, so they are level 8 "Ore Spotter".
+const TIER_LEVELS = {"1": [[0, "Tiny Prospector"],      [100, "Dirt Digger"],      [210, "Pebble Finder"], 
+                           [330, "Rock Chipper"],       [460, "Claim Stalker*"],   [600, "Pickaxe Beginner"], 
+                           [750, "Beam Bracer"],        [910, "Ore Spotter"],      [1080, "Vein Tracker"], 
+                           [1260, "Gem Hunter*"],       [1450, "Tunnel Traveler"], [1650, "Crystal Collector"], 
+                           [1860, "Gold Seeker"],       [2080, "Deep Delver"],     [2310, "Treasure Tracker*"], 
+                           [2550, "Mine Cart Rider"],   [2800, "Jewel Finder"],    [3060, "Bedrock Breaker"], 
+                           [3330, "Master Miner"],      [3610, "Grand Prospector*"]], 
+                     "2": [[0, "Mine Scout"],           [170, "Ore Hauler"],       [360, "Crystal Crafter"], 
+                           [570, "Tunnel Tamer"],       [800, "Gold Panner*"],     [1050, "Vein Hunter"], 
+                           [1320, "Rock Riveter"],      [1610, "Gem Glitterer"],   [1920, "Deep Digger"], 
+                           [2250, "Claim Claimer*"],    [2600, "Pickaxe Pro"],     [2970, "Beam Builder"], 
+                           [3360, "Treasure Tunneler"], [3770, "Jewel Juggler"],   [4200, "Bedrock Blaster*"], 
+                           [4650, "Mine Mastermind"],   [5120, "Prospector Plus"], [5610, "Crystal Commander"], 
+                           [6120, "Ore Overlord"],      [6650, "Grand Delver*"]], 
+                     "3": [[0, "Mine Specialist"],      [170, "Legendary Hauler"],  [360, "Crystal King/Queen"], 
+                           [570, "Tunnel Titan"],       [800, "Gold Guardian*"],    [1050, "Vein Victor"], 
+                           [1320, "Rock Ranger"],       [1610, "Gem Genius"],       [1920, "Mine Adventurer"], 
+                           [2250, "Claim Champion*"],   [2600, "Pickaxe Pioneer"],  [2970, "Beam Baron"], 
+                           [3360, "Treasure Titan"],    [3770, "Jewel Jedi"],       [4200, "Bedrock Baron*"], 
+                           [4650, "Mine Magnate"],      [5120, "Prospector Prime"], [5610, "Crystal Crusader"], 
+                           [6120, "Ore Oracle"],        [6650, "Deep Dominion*"]], 
+                     "4": [[0, "Miner Sovereign"],       [170, "Elite Hauler"],        [360, "Crystal Emperor"], 
+                           [570, "Tunnel Legend"],       [800, "Gold Grandmaster*"],   [1050, "Vein Virtuoso"], 
+                           [1320, "Rock Royalty"],       [1610, "Gem Storemaster"],    [1920, "Mine Ace"], 
+                           [2250, "Claim Conqueror*"],   [2600, "Pickaxe Paragon"],    [2970, "Beam Overlord"], 
+                           [3360, "Treasure Tycoon"],    [3770, "Jewel Juggernaut"],   [4200, "Bedrock Behemoth*"], 
+                           [4650, "Mine Monarch"],       [5120, "Prospector Supreme"], [5610, "Crystal Colossus"], 
+                           [6120, "Ore Overlord Elite"], [6650, "Grand Mine Master*"]]};
+// GROUP_TIER: which tier (row block in TIER_LEVELS) each group uses.
+const GROUP_TIER = { Pebbles: 1, Granites: 2, Quartz: 3, Diamonds: 4 };
+
+//Get the group tier
+// Input: a kid object. Output: the tier number for that kid's group.
+// If the kid has no group (added only on this phone), it falls back to tier 2.
+function tierFor(kid) { return GROUP_TIER[kid && kid.group] || 2; }
+
+//Get the level based one TIER_LEVELS array
+// Input: xp = lifetime XP earned, kid = the kid (used to pick the tier).
+// Output: the level number (1-20). It walks up the list and keeps the highest level whose XP need is met.
+function calculateLevel(xp, kid) {
+  const L = TIER_LEVELS[tierFor(kid)];
+  let level = 1;
+  for (let i = 1; i < L.length; i++) if (xp >= L[i][0]) level = i + 1;
+  return level;
+}
+
+//Get the level title from array
+// Input: level number and kid. Output: the title text, e.g. "Ore Spotter" ("" if not found).
+function levelTitle(level, kid) { const L = TIER_LEVELS[tierFor(kid)]; return (L[level - 1] || [0, ''])[1]; }
+
+// NOTE: everything between BEGIN/END OLD CODE is commented out, so the browser ignores it.
+//BEGIN OLD CODE
+//let kids = [];
+//let selectedKidId = null;
+//let lastTotalXP = 0;
+//let cvReady = false;
+//let stream = null;
+//let capturedImageData = null;
+//
+//function loadKids() {
+//  const raw = localStorage.getItem(STORAGE_KEY);
+//  kids = raw ? JSON.parse(raw) : [];
+//  renderKidSelect();
+//}
+//
+//function saveKids() {
+//  localStorage.setItem(STORAGE_KEY, JSON.stringify(kids));
+//}
+//
+//function calculateLevel(xp) {
+//  let level = 1;
+//  for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {
+//    if (xp >= LEVEL_THRESHOLDS[i]) level = i + 1;
+//    else break;
+//  }
+//  return Math.min(level, LEVEL_THRESHOLDS.length);
+//}
+//END OLD CODE
+
+// FIX (v6.2): these core variables and loadKids()/saveKids() were missing (only the commented-out
+// copies above existed), which stopped the app at startup. Restored from the old block.
+// kids = the kid list; selectedKidId = kid picked in the drop-down; lastTotalXP = total from the last count;
+// cvReady = OpenCV finished loading; stream = the live camera; capturedImageData = pixels of the photo to count.
+let kids = [];
+let selectedKidId = null;
+let lastTotalXP = 0;
+let cvReady = false;
+let stream = null;
+let capturedImageData = null;
+
+// Load the saved kid list from this phone (STORAGE_KEY drawer) and fill the drop-down.
+// FIX (v6.3): now reads from the on-device database (KV) instead of localStorage
+function loadKids() {
+  kids = KV.get(STORAGE_KEY) || [];
+  renderKidSelect();
+}
+
+// Save the kid list to this phone.
+// FIX (v6.3): saves to the on-device database (KV) instead of localStorage
+function saveKids() {
+  KV.set(STORAGE_KEY, kids);
+}
+
+//Select the kid in the drop down after populating drop drown with data from the spreadsheet.
+// Input: none (uses the global kids list and selectedKidId). Output: rebuilds the drop-down on screen.
+function renderKidSelect() {
+  const sel = document.getElementById('kidSelect');
+  sel.innerHTML = '<option value="">-- Select Kid --</option>';
+  kids.forEach(k => {
+    const opt = document.createElement('option');
+    opt.value = k.id;
+    // FIX (v6.3): show the group too, e.g. "Mila (Granites)", so same names can be told apart
+    opt.textContent = k.group ? k.name + ' (' + k.group + ')' : k.name;
+    if (k.id === selectedKidId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  //call function to update the stats for the selected kid.
+  updateStatsDisplay();
+}
+
+//Update the stats for the selected kid.
+// Shows Level, XP Earned, XP Spent and XP Left for the selected kid, or hides the stats box if no kid is picked.
+function updateStatsDisplay() {
+  const statsDiv = document.getElementById('kidStats');
+  if (!selectedKidId) {
+    statsDiv.classList.add('hidden');
+    return;
+  }
+  const kid = kids.find(k => k.id === selectedKidId);
+  if (!kid) return;
+  kid.level = calculateLevel(kid.xpEarned || 0, kid);
+  document.getElementById('statLevel').textContent = kid.level + ' – ' + levelTitle(kid.level, kid);
+  document.getElementById('statEarned').textContent = kid.xpEarned;
+  document.getElementById('statSpent').textContent = kid.xpSpent;
+  document.getElementById('statLeft').textContent = kid.xpEarned - kid.xpSpent;
+  statsDiv.classList.remove('hidden');
+}
+
+//Add New Kid
+// Asks for a first name and adds a kid on this phone only (no group, so it is not sent to the sheet).
+// id is the current time in milliseconds, which makes a unique id.
+// FIX (v6.3): ROOT CAUSE of "Add Kid doesn't work": the kid WAS added, but it had no group, so
+// (1) it was never sent to the sheet, and (2) the next sheet download (applySummary, which runs every time
+// the app opens or syncs) replaced the whole list with the sheet roster and the new kid vanished.
+// Now: the pop-up asks for name + group, the kid is saved on the tablet with pending:true, an
+// "addkid" item is queued for the sheet, and applySummary keeps pending kids until the sheet has them.
+// The old prompt() version is kept below as comments.
+//function addKid() {
+//  const name = prompt('Kid\'s first name (stored only on this device):');
+//  if (!name || !name.trim()) return;
+//  const newKid = { id: Date.now().toString(), name: name.trim(), xpEarned: 0, xpSpent: 0, level: 1 };
+//  kids.push(newKid);
+//  selectedKidId = newKid.id;
+//  saveKids();
+//  renderKidSelect();
+//}
+// Opens the Add Kid pop-up (no prompt(), which some installed/full-screen apps block)
+function addKid() {
+  document.getElementById('newKidName').value = '';
+  document.getElementById('newKidMsg').textContent = '';
+  document.getElementById('addKidModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('newKidName').focus(), 50);
+}
+// Save button in the pop-up. Input: name + group from the pop-up. Output: new kid selected in the list.
+function saveNewKid() {
+  const name = document.getElementById('newKidName').value.trim();
+  const group = document.getElementById('newKidGroup').value;
+  const msg = document.getElementById('newKidMsg');
+  if (!name) { msg.textContent = 'Please type a name.'; return; }
+  // Same name in the same group = same kid in the sheet, so don't add twice
+  if (kids.some(k => k.name.toLowerCase() === name.toLowerCase() && k.group === group)) {
+    msg.textContent = name + ' is already in ' + group + '.'; return;
+  }
+  const newKid = {
+    id: 'local-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),  // temporary id until the sheet gives one
+    name: name,
+    group: group,
+    xpEarned: 0,
+    xpSpent: 0,
+    level: 1,
+    pending: true      // not in the sheet yet
+  };
+  kids.push(newKid);
+  selectedKidId = newKid.id;
+  saveKids();
+  renderKidSelect();
+  document.getElementById('addKidModal').classList.add('hidden');
+  // Script 2 defines queueNewKid; it sends the kid to the sheet when online
+  if (typeof queueNewKid === 'function') queueNewKid(newKid);
+}
+document.getElementById('newKidSave').onclick = saveNewKid;
+document.getElementById('newKidCancel').onclick = () => document.getElementById('addKidModal').classList.add('hidden');
+document.getElementById('newKidName').addEventListener('keydown', e => { if (e.key === 'Enter') saveNewKid(); });
+
+//Pick a Kid from the drop down
+// Input: id of the kid picked in the drop-down. Remembers the choice and refreshes the stats
+// and the Add XP button label.
+function selectKid(id) {
+  selectedKidId = id || null;
+  updateStatsDisplay();
+  // Update add button text if results visible
+  const btn = document.getElementById('addXpBtn');
+  if (btn && !btn.classList.contains('hidden')) {
+    const kid = kids.find(k => k.id === selectedKidId);
+    btn.textContent = kid ? `Add ${lastTotalXP} XP to ${kid.name}` : 'Add XP to Selected Kid';
+  }
+}
+
+//add new kid on click of the button
+// Hook the buttons/drop-down to the functions above (onclick = run this when tapped)
+document.getElementById('addKidBtn').onclick = addKid;
+document.getElementById('kidSelect').onchange = (e) => selectKid(e.target.value);
+
+//Kid spent points ======NOT TESTED YET===============
+// (This handler is replaced later in Script 2 by a version that also sends a Purchases row to the sheet.)
+document.getElementById('spendBtn').onclick = () => {
+  if (!selectedKidId) return;
+  const kid = kids.find(k => k.id === selectedKidId);
+  const amount = parseInt(prompt(`How much XP to spend for ${kid.name}? (Left: ${kid.xpEarned - kid.xpSpent})`));
+  if (!amount || amount <= 0) return;
+  if (amount > kid.xpEarned - kid.xpSpent) {
+    alert('Not enough XP left!');
+    return;
+  }
+  kid.xpSpent += amount;
+  saveKids();
+  updateStatsDisplay();
+  alert(`Spent ${amount} XP. Left: ${kid.xpEarned - kid.xpSpent}`);
+};
+
+//Add gem counting XP to the Kid
+// Input: amount = XP from the gem count. Adds it to the selected kid, saves, and shows a
+// LEVEL UP banner (plus a phone notification if allowed) when the level goes up.
+// Script 2 wraps this function so the same count is also queued for the sheet.
+function addXPToKid(amount) {
+  if (!selectedKidId) {
+    alert('Please select a kid first!');
+    return;
+  }
+  const kid = kids.find(k => k.id === selectedKidId);
+  const oldLevel = kid.level;
+  kid.xpEarned += amount;
+  // FIX (v6.2): pass the kid so the right tier scale is used (Pebbles = little-kid scale)
+  const newLevel = calculateLevel(kid.xpEarned, kid);
+  kid.level = newLevel;
+  saveKids();
+  updateStatsDisplay();
+
+  if (newLevel > oldLevel) {
+    const msg = `🎉 LEVEL UP! ${kid.name} reached Level ${newLevel}! 🎉`;
+    document.getElementById('levelUpMsg').textContent = msg;
+    document.getElementById('levelUpMsg').classList.remove('hidden');
+    setTimeout(() => document.getElementById('levelUpMsg').classList.add('hidden'), 5000);
+
+    // Browser notification if permitted
+    // FIX (v6.3): "new Notification()" throws an error on Android Chrome, and iPads have no Notification
+    // at all - the error stopped the count from being queued for the sheet. Now uses the service worker
+    // way when available, and any error is ignored so the XP save always finishes.
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(r => r.showNotification('Kids Rock Club Mining Level Up!', { body: msg, icon: 'icons/icon-192.png' }));
+        } else {
+          new Notification('Kids Rock Club Mining Level Up!', { body: msg, icon: 'icons/icon-192.png' });
+        }
+      }
+    } catch (e) { console.warn('notification skipped', e); }
+  } else {
+    alert(`Added ${amount} XP to ${kid.name}. Total: ${kid.xpEarned}`);
+  }
+}
+
+
+// ========== Camera & Counting (from previous version) ==========
+
+//Camera ready
+// Called by the opencv.js script tag when the library has finished loading.
+// cvReady = true tells the rest of the code it is now safe to count gems.
+function onOpenCvReady() {
+  cvReady = true;
+  document.getElementById('status').classList.add('hidden');
+  console.log('OpenCV ready');
+}
+
+//Start the Camera
+// Asks the phone for the back ("environment") camera and shows it in the video box.
+// Needs HTTPS (GitHub Pages is HTTPS), otherwise the browser blocks the camera.
+document.getElementById('startBtn').onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      //TODO: adjust height
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    document.getElementById('video').srcObject = stream;
+    document.getElementById('captureBtn').disabled = false;
+    document.getElementById('startBtn').textContent = 'Camera On';
+    document.getElementById('startBtn').disabled = true;
+  } catch (err) {
+    alert('Camera error: ' + err.message + '. Try the upload option or use HTTPS.');
+  }
+};
+
+//Capture Photo
+// Copies the current video frame onto the hidden canvas, saves its pixels in
+// capturedImageData, and then counts the gems.
+document.getElementById('captureBtn').onclick = () => {
+  if (!cvReady) {
+    document.getElementById('status').classList.remove('hidden');
+    document.getElementById('status').textContent = 'OpenCV still loading...';
+    return;
+  }
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  //Analyze the Image
+  processImage();
+};
+
+//If using phone camera rather than website and opencv
+// Same as Capture, but the picture comes from a file/photo chosen on the phone.
+document.getElementById('fileInput').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (cvReady) processImage();
+    else alert('OpenCV still loading. Try again in a few seconds.');
+  };
+  img.src = URL.createObjectURL(file);
+};
+
+//Retry picture taking (New Photo Button)
+// Resets the screen so a new photo can be taken: hides results and shows the camera again.
+document.getElementById('retryBtn').onclick = () => {
+  document.getElementById('results').classList.add('hidden');
+  document.getElementById('outputCanvas').classList.add('hidden');
+  document.getElementById('controls').classList.add('hidden');
+  document.getElementById('retryBtn').classList.add('hidden');
+  document.getElementById('video').style.display = 'block';
+  document.getElementById('captureBtn').style.display = 'inline-block';
+  document.getElementById('addXpBtn').classList.add('hidden');
+};
+
+// Re-count runs detection again on the same photo (use after moving the sliders).
+// The { } block only hooks up addXpBtn if it exists, so a missing button cannot stop the script.
+document.getElementById('reprocessBtn').onclick = processImage;
+{ const b=document.getElementById('addXpBtn'); if (b) b.onclick = () => addXPToKid(lastTotalXP); }
+
+//process the image error handler if processing failed.
+// Safety wrapper: runs the real work (processImageInner) and, if anything fails,
+// shows the error message on screen instead of silently stopping.
+function processImage() {
+  try { processImageInner(); } catch (e) {
+    const st = document.getElementById('status'); st.classList.remove('hidden');
+    st.textContent = 'Error: ' + (e && e.message ? e.message : e) + ' | ' + (e && e.stack ? String(e.stack).split('\n')[1] : '');
+    console.error(e);
+  }
+}
+
+
+// ==========================================================================
+// GEM DETECTION (OpenCV). Big picture of the steps in detectGemsCore:
+//  1. Shrink the photo to 640 px wide, smooth it, and convert to HSV (hue = color, saturation = how colorful, value = brightness).
+//  2. Find the black felt mat (the biggest dark area) so only gems on the mat are counted.
+//  3. Mark "colored" pixels (saturation clearly above the mat) and sort them by hue into Orange, Cool (green/aqua), Royal (deep blue), Red.
+//  4. Find clear gems (Diamonds) from bright edges/sparkle that are not colored.
+//  5. Estimate the typical gem radius R (distance transform = how far each pixel is from the edge of its blob).
+//  6. Optional (v5): find the blue basket edge so it is not counted as gems.
+//  7. Split blobs whose hues are half green, half aqua into two gems.
+//  8. Split touching gems using distance "peaks" (gem centers) plus watershed.
+//  9. Merge pieces back together that are really one gem (glare, fragments).
+// 10. Fix-ups (pale orange -> clear, basket rejection, nearby fragments), then drop tiny pieces.
+// 11. Name each gem, draw its outline and label, and count by color.
+// ==========================================================================
+
+// GEM_P: tuning settings for detection. Short names, e.g.:
+//   S_COL / S_OVER_MAT = how colorful a pixel must be; V_COL = how bright; GB_SPLIT = hue that divides green from blue
+//   ROYAL_H = hue where deep blue starts; NECK / PEAK_FRAC = how touching gems are split; SOL_* = shape "solidity" rules for merging
+//   MIN_FRAC = smallest piece (fraction of a typical gem) that counts. Settings that are 0 are turned off unless v5 turns them on.
+// ===== Gem detection core (mirrors gemcv.py exactly) =====
+var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK_FRAC:0.45, NECK:0.7, MIN_FRAC:0.2,
+             SMALL_FRAC:0.35, SOL_SMALL:0.75, SOL_MERGE:0.9, MAX_GEM:1.6, HUE_SAME:8, GRAD_MIN:30, GRAD_K:2.0, ROYAL_H:104,
+             R_PCT:65, BIMOD:0.25, BIMOD_A:0.4, SOL_SAME:0.75, SOL_FRAG:0.6, WEAK:0.75, R_FILT:0, SEP:1.3, SEP_Q:0.95, 
+             ASSIGN:1, SEP_D:1.2, G_FRAC:0.3, R_W:0, CL_D:0, CL_SOL:0.85, CL_A:1.6, EDGE_REJ:0, WARM_S:0, R_WM:0, 
+             RS_K:0, KEEP_NP:0, MIN_FRAC_D:0, BASK:0, RED_S:0, RED_A:0.6, WARM_NEAR:0};
+// GEM_DRAW: outline color (R,G,B) used when drawing each gem type on the result image
+var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
+
+//Ugh. Pain in the rear function....Hues and Saturation and Brightness can change the color "seen"
+// Inputs: cv = OpenCV library, srcRGBA = the photo, minArea = smallest blob in pixels,
+// P = settings that override GEM_P. Output: {counts, dets (each gem found), out (picture with outlines),
+// hsv (color copy used by the tap-to-read tool), R, R1 (typical gem radius)}.
+function detectGemsCore(cv, srcRGBA, minArea, P) {
+  P = Object.assign({}, GEM_P, P || {});
+  // del / keep: OpenCV images are not cleaned up automatically, so every one is kept in a list and deleted at the end.
+  // ell(k) makes a round "brush" of size k used for cleaning shapes.
+  const del = []; 
+  const keep = m => (del.push(m), m);
+  const ell = k => keep(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(k, k)));
+  // Step 1: resize to 640 wide, smooth (median blur), convert to HSV
+  const W = 640, Hh = Math.round(W * srcRGBA.rows / srcRGBA.cols);
+  const rgba = keep(new cv.Mat()); cv.resize(srcRGBA, rgba, new cv.Size(W, Hh), 0, 0, cv.INTER_AREA);
+  const rgb = keep(new cv.Mat()); cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
+  const bl = keep(new cv.Mat()); cv.medianBlur(rgb, bl, 5);
+  const hsv = keep(new cv.Mat()); cv.cvtColor(bl, hsv, cv.COLOR_RGB2HSV);
+  const rows = Hh, cols = W, N = rows * cols;
+  // Copy the H, S and V numbers into plain arrays (faster to loop over)
+  const hd = hsv.data, H = new Uint8Array(N), S = new Uint8Array(N), V = new Uint8Array(N);
+
+  for (let p = 0; p < N; p++) { H[p] = hd[3*p]; S[p] = hd[3*p+1]; V[p] = hd[3*p+2]; }
+  // Small helpers: array <-> OpenCV image, median and percentile of a list of numbers
+  const fromArr = a => { const m = keep(new cv.Mat(rows, cols, cv.CV_8UC1)); m.data.set(a); return m; };
+  const toArr = m => Uint8Array.from(m.data);
+  const median = arr => { if (!arr.length) return 0; 
+                          const a = Float64Array.from(arr).sort(); 
+                          const n = a.length;
+                          return n % 2 ? a[(n-1)/2] : (a[n/2-1] + a[n/2]) / 2; 
+                        };
+  const percentile = (arr, q) => { const a = Float64Array.from(arr).sort(); 
+                                   const n = a.length; 
+                                   if (!n) return 0;
+                                   const pos = (n - 1) * q / 100, lo = Math.floor(pos), hi = Math.min(n-1, lo+1); 
+                                   return a[lo] + (a[hi]-a[lo]) * (pos - lo); 
+                                  };
+  // Local brightness: brightness minus a heavily blurred copy. Sparkly clear gems stand out above their surroundings.
+  const Vm = fromArr(V);
+  const g = keep(new cv.Mat()); 
+  cv.GaussianBlur(Vm, g, new cv.Size(7, 7), 0, 0, cv.BORDER_DEFAULT);
+  const gb = keep(new cv.Mat()); 
+  cv.blur(g, gb, new cv.Size(101, 101));
+  const diffM = keep(new cv.Mat()); 
+  cv.subtract(g, gb, diffM);
+  const G = toArr(g), DIFF = toArr(diffM);
+
+  // Step 2: the mat = the biggest dark area, filled in as one solid shape (convex hull), then shrunk slightly
+  // mat region
+  const vmed = median(V); 
+  const dark = new Uint8Array(N);
+  for (let p = 0; p < N; p++) dark[p] = V[p] <= vmed + 25 ? 255 : 0;
+  const darkM = fromArr(dark); 
+  cv.morphologyEx(darkM, darkM, cv.MORPH_CLOSE, ell(31));
+  const matM = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
+  { const cs = new cv.MatVector(), hi = new cv.Mat(); 
+    cv.findContours(darkM, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    let bi = -1, ba = -1; 
+    for (let i = 0; i < cs.size(); i++) { 
+        const a = cv.contourArea(cs.get(i)); 
+        if (a > ba) { ba = a; bi = i; } 
+      }
+    if (bi >= 0) { const hull = new cv.Mat(); 
+        cv.convexHull(cs.get(bi), hull, false, true); 
+        const hv = new cv.MatVector(); 
+        hv.push_back(hull);
+        cv.drawContours(matM, hv, 0, new cv.Scalar(255), -1); hv.delete(); hull.delete(); 
+      }
+    cs.delete(); hi.delete(); 
+  }
+  cv.erode(matM, matM, ell(9));
+  const MAT = toArr(matM); 
+  let matAny = false; 
+  for (let p = 0; p < N; p++) if (MAT[p]) { matAny = true; break; }
+  const onMat = (A) => { const o = []; 
+      for (let p = 0; p < N; p++) if (MAT[p]) o.push(A[p]); 
+      return o; 
+    };
+  // Step 3: sthr = saturation threshold. A pixel counts as "colored" if it is clearly more colorful than the mat.
+  // hcls(h) sorts a hue into 1 = orange, 2 = green, 3 = blue, 4 = red/pink (OpenCV hue runs 0-179)
+  const medS = matAny ? median(onMat(S)) : median(S);
+  const sthr = Math.max(P.S_COL, medS + P.S_OVER_MAT);
+  const colored = new Uint8Array(N); for (let p = 0; p < N; p++) colored[p] = (S[p] >= sthr && V[p] >= P.V_COL) ? 1 : 0;
+  const hcls = h => (h >= 8 && h <= 30) ? 1 : (h >= 31 && h <= 87) ? 2 : (h >= 88 && h <= 134) ? 3 : 4;
+
+  // clean(): removes specks (open), fills small gaps (close), and keeps only blobs big enough to be gems.
+  // Blobs touching the photo edge are dropped if they look like thin strips.
+  function clean(arr, kClose) {
+    const m = fromArr(arr); 
+    cv.morphologyEx(m, m, cv.MORPH_OPEN, ell(3)); 
+    cv.morphologyEx(m, m, cv.MORPH_CLOSE, ell(kClose));
+    const cs = new cv.MatVector(), hi = new cv.Mat(); 
+    cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const out = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
+    //Draw the contours around each gem found (helps to see how the app is counting)
+    for (let i = 0; i < cs.size(); i++) { 
+            const c = cs.get(i); 
+            const a = cv.contourArea(c); 
+            if (a < minArea) continue;
+            const r = cv.boundingRect(c); 
+            const x = r.x, y = r.y, w = r.width, h = r.height;
+            if ((x <= 1 || y <= 1 || x + w >= cols - 1 || y + h >= rows - 1) && (Math.min(w,h) < 14 || Math.max(w,h) > 4*Math.min(w,h) || a/(w*h) < 0.25)) continue;
+            cv.drawContours(out, cs, i, new cv.Scalar(255), -1); 
+          }
+    cs.delete(); 
+    hi.delete(); 
+    return toArr(out);
+  }
+
+  // Build one mask (black/white picture) per color family; anycol = any colored pixel
+  const masks = {}; 
+  const anycol = new Uint8Array(N);
+  const sels = [['Orange', h => hcls(h) === 1], 
+                ['Cool', h => (hcls(h) === 2 || hcls(h) === 3) && h < P.ROYAL_H],
+                ['Royal', h => hcls(h) === 3 && h >= P.ROYAL_H], 
+                ['Red', h => hcls(h) === 4]];
+  
+for (const [nm, sel] of sels) { 
+    const m = new Uint8Array(N);
+    for (let p = 0; p < N; p++) m[p] = (colored[p] && sel(H[p]) && MAT[p]) ? 255 : 0;
+    masks[nm] = clean(m, 7); 
+    for (let p = 0; p < N; p++) anycol[p] |= masks[nm][p]; 
+  }
+  
+// Step 4: clear gems = not colored, on the mat, and either brighter than their surroundings or with strong edges (gradient).
+// Anything close to a colored gem is removed so colored gem glare is not counted as a diamond.
+const gr = keep(new cv.Mat()); 
+cv.morphologyEx(Vm, gr, cv.MORPH_GRADIENT, ell(5)); 
+cv.blur(gr, gr, new cv.Size(9, 9));
+const GR = toArr(gr);
+const gm = matAny ? median(onMat(GR)) : median(GR), vm = matAny ? median(onMat(G)) : median(G);
+let clear = new Uint8Array(N); 
+const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
+  for (let p = 0; p < N; p++) clear[p] = (S[p] < sthr && (DIFF[p] >= P.DIFF_CLEAR || (GR[p] >= gthr && G[p] >= vm + 8))) ? 255 : 0; 
+  { 
+      const m = fromArr(clear); 
+      cv.morphologyEx(m, m, cv.MORPH_OPEN, ell(3)); 
+      cv.morphologyEx(m, m, cv.MORPH_CLOSE, ell(15));
+      const ac = fromArr(anycol); 
+      cv.dilate(ac, ac, ell(9)); 
+      const AC = toArr(ac); clear = toArr(m);
+      for (let p = 0; p < N; p++) if (AC[p] || !MAT[p]) clear[p] = 0; 
+    }
+
+  masks['Diamond'] = clean(clear, 9);
+
+  // connected components helper
+  // cc(): connected components = gives every separate blob its own number. Returns [how many, label for each pixel]
+  function cc(arr) { 
+    const m = fromArr(arr); 
+    const lab = keep(new cv.Mat()); 
+    const n = cv.connectedComponents(m, lab, 8, cv.CV_32S);
+    return [n, Int32Array.from(lab.data32S)]; 
+  }
+
+  // distT(): for each white pixel, the distance to the nearest black pixel (biggest at a gem's center)
+  function distT(arr) { 
+    const m = fromArr(arr); 
+    const d = keep(new cv.Mat()); 
+    cv.distanceTransform(m, d, cv.DIST_L2, 5); 
+    return Float32Array.from(d.data32F); 
+  }
+  
+  // typical radius of the gem
+  // Step 5: collects each blob's center depth (mx) and size (mxa) to estimate R, the typical gem radius
+  const mx = [], mxa = [];
+  for (const nm of Object.keys(masks)) { 
+    const d = distT(masks[nm]); 
+    const [n, lab] = cc(masks[nm]); 
+    const best = new Float64Array(n);
+    for (let p = 0; p < N; p++) if (lab[p] > 0 && d[p] > best[lab[p]]) best[lab[p]] = d[p];
+    const ar = new Float64Array(n); 
+    for (let p = 0; p < N; p++) if (lab[p] > 0) ar[lab[p]]++;
+    for (let i = 1; i < n; i++) { 
+      mx.push(best[i]); mxa.push(ar[i]); 
+    } 
+  }
+
+  const mxMax = mx.length ? Math.max(...mx) : 0; 
+  const mxF = mx.filter(v => v >= P.R_FILT * mxMax);
+  let R = mxF.length ? percentile(mxF, P.R_PCT) : 20.0;
+  if (P.R_W && mx.length) { 
+    const idx = [...mx.keys()].sort((a, b) => mx[a] - mx[b]); 
+    let tot = 0; const wt = i => P.R_WM ? mx[i] * mx[i] : mxa[i]; 
+    for (const i of idx) tot += wt(i);
+    let acc = 0; 
+    for (const i of idx) { 
+      acc += wt(i); 
+      if (acc >= P.R_W / 100 * tot) { R = mx[i]; break; } 
+    } 
+  }
+  
+  // RS = a scaled radius used by v5 separation rules
+  const RS = P.RS_K ? P.RS_K * R : R;
+  // Step 6 (v5 only, when P.BASK is on): large blue areas touching the photo edge are the basket, not gems
+  let BASK = null;
+  if (P.BASK) { 
+    const b = new Uint8Array(N); 
+    for (let p = 0; p < N; p++) b[p] = (S[p] >= sthr && V[p] >= P.V_COL && H[p] >= 85 && H[p] <= 134) ? 255 : 0;
+    const bm = fromArr(b); 
+    cv.morphologyEx(bm, bm, cv.MORPH_CLOSE, ell(15)); 
+    const [n, lab] = cc(toArr(bm));
+    const ar = new Float64Array(n), ed = new Uint8Array(n);
+    for (let p = 0; p < N; p++) { 
+      const l = lab[p]; if (!l) continue; 
+      ar[l]++;
+      const x = p % cols, y = (p / cols) | 0; if (x < 2 || y < 2 || x >= cols - 2 || y >= rows - 2) ed[l] = 1; 
+    }
+
+    BASK = new Uint8Array(N); 
+    for (let p = 0; p < N; p++) { 
+      const l = lab[p]; 
+      if (l && ed[l] && ar[l] > P.BASK * Math.PI * R * R) BASK[p] = 255; 
+    }
+
+    const km = fromArr(BASK); cv.dilate(km, km, ell(7)); BASK = toArr(km); 
+  }
+
+  // Step 7: a Cool blob that is partly green and partly aqua is split into two pieces (CoolG and CoolA)
+  // bimodal Cool split
+  { const cm = masks['Cool']; 
+    const [n, lab] = cc(cm);
+    const hw = new Float32Array(N), ww = new Float32Array(N); 
+    for (let p = 0; p < N; p++) { 
+      hw[p] = colored[p] ? H[p] : 0; ww[p] = colored[p]; 
+    }
+    const hwM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, hw)), wwM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, ww));
+    cv.blur(hwM, hwM, new cv.Size(9, 9)); 
+    cv.blur(wwM, wwM, new cv.Size(9, 9));
+    const HB = hwM.data32F, WB = wwM.data32F; 
+    const Hs = new Float32Array(N); 
+    for (let p = 0; p < N; p++) Hs[p] = HB[p] / Math.max(WB[p], 1e-3);
+    const gpart = new Uint8Array(N), apart = new Uint8Array(N);
+    for (let i = 1; i < n; i++) {
+      let cnt = 0, ng = 0, na = 0; 
+      for (let p = 0; p < N; p++) if (lab[p] === i && colored[p]) { 
+        cnt++; 
+        if (H[p] <= P.GB_SPLIT) ng++; 
+        if (H[p] >= P.GB_SPLIT + 4) na++; 
+      }
+      
+      if (!cnt) continue;
+      
+      if (ng / cnt >= P.BIMOD && na / cnt >= P.BIMOD) {
+        const gA = new Uint8Array(N), aA = new Uint8Array(N);
+        for (let p = 0; p < N; p++) if (lab[p] === i) { 
+          if (Hs[p] <= P.GB_SPLIT + 2) gA[p] = 255; else aA[p] = 255; 
+        }
+        
+        const gM = fromArr(gA), aM = fromArr(aA); 
+        cv.morphologyEx(gM, gM, cv.MORPH_OPEN, ell(7)); 
+        cv.morphologyEx(aM, aM, cv.MORPH_OPEN, ell(7));
+        
+        let sg = 0, sa = 0; 
+        const g2 = toArr(gM), a2 = toArr(aM); 
+        for (let p = 0; p < N; p++) { 
+          if (g2[p]) sg++; if (a2[p]) sa++; 
+        }
+        
+        const lim = P.BIMOD_A * Math.PI * R * R;
+        
+        if (sg >= lim && sa >= lim) {
+          for (let p = 0; p < N; p++) if (lab[p] === i) cm[p] = 0;
+          for (const [part, dst] of [[clean(g2, 7), gpart], [clean(a2, 7), apart]]) {
+            const pm = fromArr(part); 
+            const cs = new cv.MatVector(), hi = new cv.Mat(); 
+            cv.findContours(pm, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            for (let k = 0; k < cs.size(); k++) { 
+              const t = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1)); 
+              const hull = new cv.Mat(); 
+              cv.convexHull(cs.get(k), hull, false, true);
+              const hv = new cv.MatVector(); 
+              hv.push_back(hull); 
+              cv.drawContours(t, hv, 0, new cv.Scalar(255), -1); 
+              hv.delete(); 
+              hull.delete();
+              const T = t.data; 
+              for (let p = 0; p < N; p++) if (T[p] && lab[p] === i && !dst[p]) dst[p] = 255; 
+            }
+            
+            cs.delete(); hi.delete(); 
+          }
+        }
+      }
+    }
+
+    masks['CoolG'] = gpart; masks['CoolA'] = apart; 
+  }
+
+  // split by distance peaks
+  // Step 8 split(): finds gem centers ("peaks" in the distance map), decides which peaks belong to the
+  // same gem (connected by a thick "neck"), then uses watershed to cut the blob between gems.
+  // Input: a mask. Output: a list of masks, one per gem.
+  function split(arr) {
+    const dist = distT(arr);
+    const dM = keep(cv.matFromArray(rows, cols, cv.CV_32FC1, dist)); 
+    const dil = keep(new cv.Mat());
+    const ks = Math.max(3, Math.trunc(R * (P.KS_K || 0.9)) | 1); 
+    cv.dilate(dM, dil, ell(ks)); 
+    const DL = dil.data32F;
+    const pk = new Uint8Array(N); 
+    for (let p = 0; p < N; p++) pk[p] = (dist[p] >= DL[p] - 0.5 && dist[p] >= P.PEAK_FRAC * R) ? 255 : 0;
+    const pkM = fromArr(pk); 
+    const pl = keep(new cv.Mat()), st = keep(new cv.Mat()), ce = keep(new cv.Mat());
+    const pn = cv.connectedComponentsWithStats(pkM, pl, st, ce, 8, cv.CV_32S); 
+    const PL = pl.data32S;
+    const pmax = new Float64Array(pn); 
+    for (let p = 0; p < N; p++) if (PL[p] > 0 && dist[p] > pmax[PL[p]]) pmax[PL[p]] = dist[p];
+    const pts = []; 
+    for (let i = 1; i < pn; i++) pts.push([ce.data64F[2*i], ce.data64F[2*i+1], pmax[i]]);
+    const nP = pts.length;
+    const lineMin = (i, j) => { 
+      const [x1,y1,d1] = pts[i], [x2,y2,d2] = pts[j]; 
+      const L = Math.hypot(x2-x1, y2-y1);
+      
+      if (L > 1.6 * (d1 + d2)) return null; 
+      
+      const m = Math.trunc(L) + 2; 
+      let mn = Infinity;
+      
+      for (let k = 0; k < m; k++) { 
+        const t = m > 1 ? k / (m - 1) : 0; 
+        const x = Math.round(x1 + (x2-x1)*t), y = Math.round(y1 + (y2-y1)*t); 
+        mn = Math.min(mn, dist[y*cols + x]); 
+      }
+      return mn; };
+    const Q = []; 
+    for (let i = 0; i < nP; i++) { 
+      Q.push([]); 
+      for (let j = 0; j < nP; j++) { 
+        if (i === j) { Q[i].push(1); continue; }
+        const mn = lineMin(i, j); 
+        Q[i].push(mn === null ? 0 : mn / Math.max(pts[i][2], pts[j][2])); 
+      } 
+    }
+
+    // Debug output only; runs in Node testing, never in the browser
+    if (typeof process !== 'undefined' && process.env.DBG2) for (let i = 0; i < nP; i++) if (Math.abs(pts[i][0] - +process.env.DBG2.split(',')[0]) < 90 && Math.abs(pts[i][1] - +process.env.DBG2.split(',')[1]) < 90) console.log('PK', i, pts[i].map(v => v.toFixed(1)).join(','), Q[i].map(v => v.toFixed(2)).filter((v, j) => Q[i][j] > 0.3 && j !== i).join(' '));
+    const gid = [...Array(nP).keys()];
+    const far = (i, j) => Math.hypot(pts[i][0]-pts[j][0], pts[i][1]-pts[j][1]) >= P.SEP * Math.max(pts[i][2], pts[j][2]) && Q[i][j] < P.SEP_Q && Math.min(pts[i][2], pts[j][2]) >= P.SEP_D * RS;
+    const cut = []; 
+    for (let i = 0; i < nP; i++) for (let j = 0; j < nP; j++) if (i !== j && Q[i][j] >= P.NECK && far(i, j)) { 
+      Q[i][j] = Math.min(Q[i][j], P.NECK - 0.01); 
+      if (i < j) cut.push([i, j]); 
+    }
+    
+    const pairs = []; 
+    for (let i = 0; i < nP; i++) for (let j = i+1; j < nP; j++) if (Q[i][j] >= P.NECK) pairs.push([Q[i][j], i, j]);
+    pairs.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+    
+    for (const [, i, j] of pairs) { 
+      const gi = gid[i], gj = gid[j]; 
+      if (gi === gj) continue;
+      const A = [], B = []; 
+      for (let k = 0; k < nP; k++) { 
+        if (gid[k] === gi) A.push(k); 
+        if (gid[k] === gj) B.push(k); 
+      }
+
+      if (A.every(x => B.every(y => Q[x][y] >= P.NECK))) for (const k of B) gid[k] = gi; 
+    }
+
+    for (let i = 0; i < nP; i++) {
+      let sz = 0; 
+      for (let k = 0; k < nP; k++) if (gid[k] === gid[i]) sz++; 
+      if (sz > 1) continue;
+      const cand = []; 
+      for (let j = 0; j < nP; j++) { 
+        if (j === i || !(pts[i][2] < P.WEAK * pts[j][2])) continue;
+        const mn = lineMin(i, j); 
+        const q = mn === null ? 0 : mn / Math.min(pts[i][2], pts[j][2]); 
+        if (q >= P.NECK) cand.push([q, j]); 
+      }
+      
+      if (cand.length && new Set(cand.map(c => gid[c[1]])).size === 1) { 
+        cand.sort((a, b) => b[0] - a[0] || b[1] - a[1]); gid[i] = gid[cand[0][1]]; 
+      } 
+    }
+
+    const groups = new Map(); 
+    for (let i = 0; i < nP; i++) { 
+      if (!groups.has(gid[i])) groups.set(gid[i], []); 
+      groups.get(gid[i]).push(i); 
+    }
+
+    // markers: each gem group gets its own number; background = 1; watershed fills in the rest
+    const markers = keep(cv.Mat.zeros(rows, cols, cv.CV_32SC1)); 
+    const MK = markers.data32S;
+    const glist = [...groups.values()];
+    
+    glist.forEach((mem, gi) => { 
+      for (const i of mem) { 
+        for (let p = 0; p < N; p++) if (PL[p] === i + 1) MK[p] = gi + 2;
+        for (const j of mem) cv.line(markers, new cv.Point(Math.trunc(pts[i][0]), Math.trunc(pts[i][1])), new cv.Point(Math.trunc(pts[j][0]), Math.trunc(pts[j][1])), new cv.Scalar(gi + 2), 2); } });
+        for (let p = 0; p < N; p++) if (!arr[p]) MK[p] = 1;
+        let dmax = 0; 
+        for (let p = 0; p < N; p++) if (dist[p] > dmax) dmax = dist[p];
+        const sc = 255.0 / Math.max(1.0, dmax); 
+        const dn = new Uint8Array(N * 3);
+        for (let p = 0; p < N; p++) { 
+          let v = dist[p] * sc; 
+          v = Math.min(255, Math.max(0, v)); 
+          const u = Math.trunc(255 - v); dn[3*p] = dn[3*p+1] = dn[3*p+2] = u; 
+        }
+    
+        const dnM = keep(new cv.Mat(rows, cols, cv.CV_8UC3)); 
+        dnM.data.set(dn);
+        cv.watershed(dnM, markers); 
+        const WS = markers.data32S;
+        // ASSIGN: pixels between two gems that should be apart go to whichever center is closer
+        if (P.ASSIGN) for (const [i, j] of cut) {
+          const gi = glist.findIndex(m => m.includes(i)) + 2, gj = glist.findIndex(m => m.includes(j)) + 2; 
+          if (gi === gj) continue;
+          for (let p = 0; p < N; p++) { 
+            if (!arr[p] || (WS[p] !== gi && WS[p] !== gj && WS[p] !== -1)) continue;
+            const x = p % cols, y = (p / cols) | 0;
+            const vi = Math.hypot(x - pts[i][0], y - pts[i][1]) / pts[i][2], vj = Math.hypot(x - pts[j][0], y - pts[j][1]) / pts[j][2];
+            if (Math.min(vi, vj) > 2.2) continue; 
+            WS[p] = vi <= vj ? gi : gj; 
+          } 
+        }
+    
+        const outR = glist.map((_, gi) => { const r = new Uint8Array(N); for (let p = 0; p < N; p++) if (WS[p] === gi + 2 && arr[p]) r[p] = 1; return r; });
+
+        // KEEP_NP (v5): keep blobs that had no peak if they are big enough
+        if (P.KEEP_NP) { 
+          const [n, lab] = cc(arr); 
+          const hasPk = new Uint8Array(n); 
+          for (let p = 0; p < N; p++) if (PL[p] > 0) hasPk[lab[p]] = 1;
+          for (let i = 1; i < n; i++) if (!hasPk[i]) { 
+            const r = new Uint8Array(N); 
+            let c = 0; 
+            for (let p = 0; p < N; p++) if (lab[p] === i) { r[p] = 1; c++; } if (c >= P.KEEP_NP) outR.push(r); 
+          } 
+        }
+
+        return outR;
+      }
+  // Run split() on each color mask and collect every piece as a region {nm = color, r = mask, a = area}
+  const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
+  let regs = [];
+
+  for (const nm of ['Orange', 'Cool', 'Royal', 'Red', 'Diamond', 'CoolG', 'CoolA']) {
+    let parts;
+    if (nm === 'CoolG' || nm === 'CoolA') { 
+      const [n, lab] = cc(masks[nm]); 
+      parts = [];
+      for (let i = 1; i < n; i++) { 
+        const r = new Uint8Array(N); 
+        for (let p = 0; p < N; p++) if (lab[p] === i) r[p] = 1; parts.push(r); 
+      } 
+    }
+    
+    else parts = split(masks[nm]);
+    
+    for (const r of parts) { 
+      const a = sumA(r); 
+      if (a > 0) regs.push({nm: nm.startsWith('Cool') ? 'Cool' : nm, r, a}); 
+    }
+  }
+
+  // merge
+  // Step 9: solidity = area / area of its convex hull (1.0 = solid round shape, low = ragged or two blobs)
+  function solidity(r) { 
+    const m = fromArr(r); 
+    const cs = new cv.MatVector(), hi = new cv.Mat(); 
+    cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    if (cs.size() === 0) { cs.delete(); hi.delete(); return 0; }
+    const all = []; 
+    for (let i = 0; i < cs.size(); i++) { 
+      const c = cs.get(i).data32S; 
+      for (let k = 0; k < c.length; k++) all.push(c[k]); 
+    }
+    const pm = cv.matFromArray(all.length / 2, 1, cv.CV_32SC2, all); 
+    const hull = new cv.Mat(); 
+    cv.convexHull(pm, hull, false, true);
+    const ha = cv.contourArea(hull); 
+    pm.delete(); 
+    hull.delete(); 
+    cs.delete(); 
+    hi.delete(); 
+    return sumA(r) / Math.max(1.0, ha); 
+  }
+  
+  // Merge loop: repeatedly join the smallest piece into a touching neighbor when the rules say they are one gem.
+  // Repeats until nothing changes.
+  const medHue = r => { const v = []; for (let p = 0; p < N; p++) if (r[p] && colored[p]) v.push(H[p]); return v.length ? median(v) : 0; };
+  const gem = Math.PI * R * R; 
+  const k5 = ell(5);
+  let changed = true;
+  
+  while (changed) { 
+    changed = false;
+    regs.forEach((o, i) => o.i = i); 
+    regs.sort((a, b) => a.a - b.a || a.i - b.i);
+    for (let i = 0; i < regs.length; i++) {
+      const {nm, r, a} = regs[i]; 
+      const rdM = fromArr(r); 
+      cv.dilate(rdM, rdM, k5); 
+      const RD = rdM.data;
+      
+      let best = null;
+      
+      for (let j = 0; j < regs.length; j++) { 
+        if (j === i) continue; 
+        const {nm: nm2, r: r2} = regs[j];
+        let touch = 0; 
+        for (let p = 0; p < N; p++) if (RD[p] && r2[p]) touch++; 
+        if (!touch) continue;
+        const u = new Uint8Array(N); 
+        for (let p = 0; p < N; p++) u[p] = r[p] | r2[p]; 
+        const ua = sumA(u); 
+        const sol = solidity(u);
+        const small = a < P.SMALL_FRAC * gem;
+        const glare = nm === 'Diamond' && nm2 !== 'Diamond';
+        const fam = (nm === 'Cool' || nm === 'Royal') && (nm2 === 'Cool' || nm2 === 'Royal') && nm !== nm2 && sol >= 0.95;
+        const same = nm === nm2 && (nm !== 'Cool' || Math.abs(medHue(r) - medHue(r2)) <= P.HUE_SAME);
+        const fam2 = (nm === 'Cool' || nm === 'Royal') && (nm2 === 'Cool' || nm2 === 'Royal') && nm !== nm2;
+        const a2 = sumA(r2);
+        const ok = (small && sol >= P.SOL_SMALL) || ((glare || same || fam) && sol >= P.SOL_MERGE && ua <= P.MAX_GEM * gem) ||
+          ((same || fam2) && Math.max(a, a2) < 0.85 * gem && ua <= 1.5 * gem && sol >= 0.55) ||
+          ((same || fam2) && a < 0.85 * gem && solidity(r) < 0.5 && sol >= 0.65 && ua <= 2.6 * gem) ||
+          ((same || fam2) && ua <= P.MAX_GEM * gem && (sol >= P.SOL_SAME || (sol >= P.SOL_FRAG && Math.max(solidity(r), solidity(r2)) < P.SOL_SAME + 0.05)));
+        if (ok && (best === null || touch > best[0])) best = [touch, j];
+      }
+      if (best) { 
+        const j = best[1]; 
+        const t = regs[j]; 
+        if (typeof process !== 'undefined' && process.env.DBG) { 
+          const c = q => { let sx = 0, sy = 0, n = 0; 
+                           for (let p = 0; p < N; p++) if (q[p]) { 
+                             sx += p % cols; sy += (p / cols) | 0; n++; 
+                           } 
+                           return [Math.round(sx / n), Math.round(sy / n)]; 
+                          }; 
+                          console.log('MERGE', nm, c(r), (a / gem).toFixed(2), '->', t.nm, c(t.r), (t.a / gem).toFixed(2)); 
+                        } 
+                        for (let p = 0; p < N; p++) t.r[p] |= r[p]; t.a = sumA(t.r);
+
+        if (t.nm === 'Diamond' && nm !== 'Diamond' && a > t.a / 2) t.nm = nm;
+        regs.splice(i, 1); changed = true; break; }
+    }
+  }
+  // Step 10: R1 = typical gem radius measured again from the final regions
+  const eq = regs.filter(o => o.a >= 0.15 * gem).map(o => Math.sqrt(o.a / Math.PI));
+  const R1 = eq.length ? median(eq) : R;
+  // WARM_S (v5): pale orange/red pieces near a clear gem are really reflections of the clear gem
+  if (P.WARM_S) { 
+    const cen0 = o => { let sx = 0, sy = 0; 
+      for (let p = 0; p < N; p++) if (o.r[p]) { 
+        sx += p % cols; sy += (p / cols) | 0; 
+      } 
+      return [sx / o.a, sy / o.a]; 
+    };
+    const dc = regs.filter(o => o.nm === 'Diamond' && o.a >= 0.1 * gem).map(cen0);
+    for (const o of regs) if ((o.nm === 'Orange' && o.a < P.RED_A * gem) || (o.nm === 'Red' && P.RED_S && o.a < P.RED_A * gem)) { 
+      const sv = []; 
+      for (let p = 0; p < N; p++) if (o.r[p]) sv.push(S[p]);
+      if (median(sv) >= (o.nm === 'Red' ? P.RED_S : P.WARM_S)) continue; 
+      const c = cen0(o);
+      if (!P.WARM_NEAR || dc.some(d => Math.hypot(d[0] - c[0], d[1] - c[1]) < P.WARM_NEAR * R)) o.nm = 'Diamond'; 
+    } 
+  }
+
+  // BASK: drop blue pieces that are mostly on the basket
+  if (BASK) regs = regs.filter(o => { if (o.nm !== 'Cool' && o.nm !== 'Royal') return true; 
+      let c = 0; for (let p = 0; p < N; p++) if (o.r[p] && BASK[p]) c++; return c < 0.2 * o.a; });
+
+  // CL_D (v5): join two pieces whose centers are very close and that form a solid shape together
+  if (P.CL_D > 0) { const cen = o => { let sx = 0, sy = 0; 
+    for (let p = 0; p < N; p++) if (o.r[p]) { 
+      sx += p % cols; sy += (p / cols) | 0; 
+    } return [sx / o.a, sy / o.a]; 
+  };
+  
+  let ch = true; while (ch) { 
+    ch = false; 
+    regs.forEach(o => o.c = cen(o)); 
+    regs.sort((a, b) => b.a - a.a);
+    outer: for (let i = 0; i < regs.length; i++) for (let j = i + 1; j < regs.length; j++) { 
+        const A = regs[i], B = regs[j];
+        if ((A.nm === 'Diamond') !== (B.nm === 'Diamond')) continue;
+        const d = Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1]); if (d > P.CL_D * R1) continue;
+        const u = new Uint8Array(N); 
+        for (let p = 0; p < N; p++) u[p] = A.r[p] | B.r[p]; const ua = sumA(u);
+        if (ua > P.CL_A * Math.PI * R1 * R1 || solidity(u) < P.CL_SOL) continue;
+        A.r = u; A.a = ua; 
+        regs.splice(j, 1); 
+        ch = true; break outer; 
+      } 
+    } 
+  }
+  
+  // Step 11: drop tiny pieces, name each gem (Cool -> Green or Blue), draw outlines, and record detections
+  const out = keep(rgb.clone()); const dets = [];
+  
+  for (const o of regs) {
+    if (o.a < ((o.nm === 'Diamond' && P.MIN_FRAC_D) ? P.MIN_FRAC_D : P.MIN_FRAC) * Math.PI * R1 * R1 || o.a < minArea) { 
+      if (typeof process !== 'undefined' && process.env.DBG && o.a > 50) { 
+        let sx = 0, sy = 0; for (let p = 0; p < N; p++) if (o.r[p]) { 
+          sx += p % cols; sy += (p / cols) | 0; 
+        } 
+        console.log('SMALL', o.nm, Math.round(sx / o.a), Math.round(sy / o.a), (o.a / (Math.PI * R1 * R1)).toFixed(3)); 
+      } 
+      continue; 
+    }
+    
+    let name = o.nm === 'Royal' ? 'Blue' : o.nm; if (o.nm === 'Cool') { 
+      if (P.G_FRAC > 0) { 
+        let c = 0, g = 0; 
+        for (let p = 0; p < N; p++) if (o.r[p] && colored[p]) { 
+          c++; 
+          if (H[p] <= P.GB_SPLIT) g++; 
+        } 
+        name = c && g / c >= P.G_FRAC ? 'Green' : 'Blue'; 
+      } else name = medHue(o.r) <= P.GB_SPLIT ? 'Green' : 'Blue'; 
+    }
+    
+    let sx = 0, sy = 0; 
+    for (let p = 0; p < N; p++) if (o.r[p]) { 
+      sx += p % cols; sy += (p / cols) | 0; 
+    }
+    
+    const sv = []; 
+    let edge = 0; 
+    for (let p = 0; p < N; p++) if (o.r[p]) { 
+      sv.push(S[p]); 
+      const x = p % cols, y = (p / cols) | 0; 
+      if (x < 3 || y < 3 || x >= cols - 3 || y >= rows - 3) edge++; 
+    }
+
+    const ms = median(sv), mv = percentile(sv, 85);
+    if (P.EDGE_REJ && edge > 0 && name === 'Blue') continue;
+    if (P.WARM_S && name === 'Orange' && ms < P.WARM_S) name = 'Diamond';
+    dets.push({name, x: Math.trunc(sx / o.a), y: Math.trunc(sy / o.a), area: o.a, ms, mv, edge});
+    const m = fromArr(o.r); 
+    const cs = new cv.MatVector(), hi = new cv.Mat(); 
+    cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const c = GEM_DRAW[name]; 
+    cv.drawContours(out, cs, -1, new cv.Scalar(c[0], c[1], c[2]), 2); 
+    cs.delete(); 
+    hi.delete();
+  }
+
+  // Write each gem's name on the picture (black outline text, then white text on top)
+  for (const d of dets) { 
+    const pt = new cv.Point(d.x - 28, d.y + 4);
+    cv.putText(out, d.name, pt, cv.FONT_HERSHEY_SIMPLEX, 0.45, new cv.Scalar(0, 0, 0), 3);
+    cv.putText(out, d.name, pt, cv.FONT_HERSHEY_SIMPLEX, 0.45, new cv.Scalar(255, 255, 255), 1); 
+  }
+
+  // Count gems by color, make the display picture, delete all temporary OpenCV images, and return the results
+  const counts = {Orange: 0, Green: 0, Blue: 0, Red: 0, Diamond: 0}; 
+  dets.forEach(d => counts[d.name]++);
+  const outRGBA = new cv.Mat(); 
+  cv.cvtColor(out, outRGBA, cv.COLOR_RGB2RGBA);
+  const hsvOut = hsv.clone();
+  del.forEach(m => { try { m.delete(); } catch (e) {} });
+  return {counts, dets, out: outRGBA, hsv: hsvOut, R, R1};
+}
+
+// GEM_V5: the stronger settings used when a photo looks "fragmented" (gems broken into many pieces)
+var GEM_V5 = {CL_D:1.3, CL_SOL:0.75, R_WM:1, RS_K:0.7, KEEP_NP:30, R_W:50, BASK:3, WARM_S:120, RED_S:145, MIN_FRAC_D:0.3, WARM_NEAR:1.3};
+
+// version 5: run the version 4 pipeline; if its result looks fragmented (many tiny or oversized pieces), rerun with the robust version 5 settings.
+// Input/Output same as detectGemsCore. Counts with normal settings first; if 8 or more pieces are
+// much smaller or bigger than the typical piece, it counts again with GEM_V5. mode tells which one was used.
+function detectGems(cv, srcRGBA, minArea, P) {
+  P = P || {};
+  const a = detectGemsCore(cv, srcRGBA, minArea, P);
+  const ar = a.dets.map(d => d.area).sort((x, y) => x - y); 
+  const med = ar.length ? ar[ar.length >> 1] : 0;
+  const bad = ar.filter(x => x < 0.4 * med || x > 2.2 * med).length;
+  if (bad < 8) { a.mode = 'v4'; return a; }
+  const b = detectGemsCore(cv, srcRGBA, minArea, Object.assign({}, P, GEM_V5)); 
+  b.mode = 'v5';
+  try { a.out.delete(); a.hsv.delete(); } catch (e) {}
+  return b;
+}
+
+// GEM_COLORS: gem names, point values and the swatch color shown in the results list
+const GEM_COLORS = [
+  { name: 'Orange',  points: 5,   css: '#ffa500' },
+  { name: 'Green',   points: 10,  css: '#00cc00' },
+  { name: 'Blue',    points: 15,  css: '#0066ff' },   // all shades of blue (aqua, light, royal)
+  { name: 'Red',     points: 20,  css: '#ff3333' },   // pinkish reds count as Red
+  { name: 'Diamond', points: 100, css: '#e0f0ff' }    // clear gems
+];
+
+// lastCounts: the most recent count per color (the -/+ buttons change it)
+let lastCounts = null;
+// Shows one row per color (count x points = subtotal), the total, and the Add XP button.
+// Saves the total in lastTotalXP so the Add XP button knows how much to add.
+function renderResults() {
+  let total = 0, html = '';
+  GEM_COLORS.forEach(g => {
+    const c = lastCounts[g.name] || 0, pts = c * g.points; total += pts;
+    html += `<div class="gem-row"><span><span class="gem-color" style="background:${g.css}"></span>${g.name}</span>` +
+      `<span><button class="adj" data-g="${g.name}" data-d="-1" style="padding:2px 8px;margin:0 4px">−</button>${c} × ${g.points} = ${pts}` +
+      `<button class="adj" data-g="${g.name}" data-d="1" style="padding:2px 8px;margin:0 4px">+</button></span></div>`;
+  });
+
+  lastTotalXP = total;
+  document.getElementById('gemList').innerHTML = html;
+  document.querySelectorAll('#gemList .adj').forEach(b => b.onclick = () => {
+    lastCounts[b.dataset.g] = Math.max(0, (lastCounts[b.dataset.g] || 0) + parseInt(b.dataset.d)); renderResults(); });
+  document.getElementById('totalPoints').textContent = `Total: ${total} XP`;
+  const addBtn = document.getElementById('addXpBtn');
+  const kid = kids.find(k => k.id === selectedKidId);
+  addBtn.textContent = kid ? `Add ${total} XP to ${kid.name}` : 'Select a kid first, then Add XP';
+  addBtn.classList.remove('hidden');
+}
+
+// Main counting step: reads the sliders, runs detectGems on the captured photo, shows the picture
+// with outlines, fills in the results, and keeps the HSV copy in lastHsv for the tap tool.
+function processImageInner() {
+  if (!capturedImageData || !cvReady) return;
+  const st = document.getElementById('status');
+  st.classList.remove('hidden'); st.textContent = 'Analyzing...';
+  const minArea = parseInt(document.getElementById('minArea').value) || 200;
+  const sens = parseInt(document.getElementById('sensitivity').value) || 60;
+
+  // Sensitivity: higher = weaker colors still count as colored (default 60 -> 40 above the mat's saturation)
+  const src = cv.matFromImageData(capturedImageData);
+  const res = detectGems(cv, src, minArea, { S_OVER_MAT: Math.max(10, 100 - sens) });
+  src.delete();
+  if (lastHsv) lastHsv.delete(); lastHsv = res.hsv;
+  const outCanvas = document.getElementById('outputCanvas');
+  outCanvas.width = res.out.cols; outCanvas.height = res.out.rows;
+  cv.imshow(outCanvas, res.out); res.out.delete();
+  outCanvas.classList.remove('hidden');
+  lastCounts = Object.assign({}, res.counts);
+  renderResults();
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('controls').classList.remove('hidden');
+  st.classList.add('hidden');
+  document.getElementById('video').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retryBtn').classList.remove('hidden');
+}
+
+// Tap the result image to read the color (H,S,V) at that spot, for tuning
+document.getElementById('outputCanvas').addEventListener('click', (e) => {
+  if (!lastHsv) return;
+  const c = e.target, r = c.getBoundingClientRect();
+  const x = Math.min(lastHsv.cols - 1, Math.max(0, Math.round((e.clientX - r.left) * c.width / r.width)));
+  const y = Math.min(lastHsv.rows - 1, Math.max(0, Math.round((e.clientY - r.top) * c.height / r.height)));
+  const p = lastHsv.ucharPtr(y, x);
+  const st = document.getElementById('status');
+  st.classList.remove('hidden');
+  st.textContent = `Tapped color: H=${p[0]} S=${p[1]} V=${p[2]}`;
+});
+
+// Init
+// Startup: load the saved kid list from this phone
+// FIX (v6.3): wait for the on-device database to open first
+KV.ready.then(loadKids);
+
+// Request notification permission for level-ups
+if ('Notification' in window && Notification.permission === 'default') {
+  // FIX (v6.3): wrapped in try so older iPads that don't support this can't stop the script
+  try { Notification.requestPermission(); } catch (e) {}
+}
+</script>
+<script>
+// ==========================================================================
+// SCRIPT 2: Google Sheet sync. How it works:
+//  - Reading: fetchSummary() asks the Apps Script web app (?action=summary) for the roster and points.
+//  - Writing: every count or purchase becomes a small "item" that goes into the offline queue,
+//    then flushQueue() POSTs items to the web app one at a time. The script adds a GemLog or Purchases row.
+//  - The Key travels with every request; the script refuses requests whose key does not match SECRET.
+//  - clientId on every item lets the script ignore an accidental duplicate send.
+// ==========================================================================
+// ========== version6: Google Sheet sync (Apps Script) + offline queue + printing ==========
+
+// Paste your Apps Script /exec link between the quotes. Never put the Key here; it stays on each phone.
+// DEFAULT_URL: the web app link. Safe to put in public code because it does nothing without the Key.
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwa5XoeGrPwh1y-98JIPzTGllwZFvlnTelpr7PWYKuMU1kOB4VQnXC9ZVVdg-N44fM/exec';
+// localStorage drawer names: settings (url, key, leader, date), the offline queue, and the last roster from the sheet
+const SET_KEY = 'krcSettings_v6', QUEUE_KEY = 'krcQueue_v6', SUMMARY_KEY = 'krcSummary_v6';
+// FIX (v6.3): LASTSYNC_KEY = time of last good sync; SENT_KEY = clientIds the sheet already confirmed
+// (remembered so an imported backup can't send the same count twice)
+const LASTSYNC_KEY = 'krcLastSync_v6', SENT_KEY = 'krcSent_v6';
+// Group order and background colors used on the print pages
+const GROUPS = ['Pebbles', 'Granites', 'Quartz', 'Diamonds'];
+const GROUP_COLORS = { Pebbles: '#FFF5CE', Granites: '#DDE8CB', Quartz: '#DEE6EF', Diamonds: '#FFD7D7' };
+// Read saved settings from this phone. Output: {url, key, leader, date} or {} if nothing saved yet.
+function getSettings() { 
+  try { 
+    return KV.get(SET_KEY) || {};   // FIX (v6.3): on-device database instead of localStorage
+  } 
+  catch (e) { 
+    return {}; 
+  } 
+}
+
+// The offline queue: a list of saves that have not reached the sheet yet. Saved on the phone so they
+// survive Wi-Fi drops, closing the app, or the phone going to sleep. Output: the list ([] if empty).
+function getQueue() { 
+  try { 
+    return KV.get(QUEUE_KEY) || [];   // FIX (v6.3): on-device database instead of localStorage
+  } 
+  catch (e) { 
+    return [];
+  } 
+}
+
+// Save the queue list back to the phone and refresh the status badge.
+function setQueue(q) { 
+  KV.set(QUEUE_KEY, q); updateBadge();   // FIX (v6.3): on-device database
+}
+
+// Last roster downloaded from the sheet (or null). Lets the app open instantly and work offline.
+function getSummary() { 
+  try { 
+    return KV.get(SUMMARY_KEY);   // FIX (v6.3): on-device database
+  } 
+  catch (e) { 
+    return null; 
+  } 
+}
+
+// Output: the date of the most recent Sunday as "YYYY-MM-DD" (default session date).
+function sundayISO() {
+  const d = new Date(); d.setDate(d.getDate() - d.getDay());
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// sessionDate: the date chosen in Settings, or this week's Sunday if none.
+// esc: makes text safe to put inside HTML (so a name with < or & cannot break the page).
+function sessionDate() { return getSettings().date || sundayISO(); }
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// Updates the status line under "Google Sheet Linkage". msg (optional) is shown first.
+function updateBadge(msg) {
+  const st = getSettings(), q = getQueue(), sm = getSummary();
+  let t = st.url ? 'Connected to sheet' : 'No sheet URL yet (Settings)';
+  if (sm) t += ' · roster ' + new Date(sm.updated).toLocaleString();
+  if (q.length) t += ' · ' + q.length + ' waiting to upload';
+  if (!navigator.onLine) t += ' · offline';   // FIX (v6.3)
+  document.getElementById('syncBadge').textContent = msg ? msg + ' — ' + t : t;
+  // FIX (v6.3): last-synced line (time of the last fully successful sync)
+  const ls = KV.get(LASTSYNC_KEY);
+  document.getElementById('lastSync').textContent = 'Last synced: ' + (ls ? new Date(ls).toLocaleString() : 'never');
+}
+
+// Roster from the sheet replaces the device-only list (sheet is the source of truth)
+// Input: the summary from the sheet. Rebuilds the kid list from it, adds any saves still waiting in
+// the queue (so points look right even before upload), and shows names as "Name (Group)".
+function applySummary(sm) {
+  if (!sm || !sm.kids) return;
+  const pending = getQueue();
+  // FIX (v6.3): remember the old list so kids added on this tablet (not in the sheet yet) are kept
+  const oldKids = kids;
+  kids = sm.kids.map(k => {
+    const id = String(k.id);
+    let earned = Number(k.earned) || 0, spent = Number(k.spent) || 0;
+    // FIX (v6.3): only gem and purchase items change points ('addkid' items have no points)
+    pending.forEach(p => { if (p.name === k.name && p.group === k.group) { if (p.type === 'gem') earned += Number(p.xp) || 0; else if (p.type === 'purchase') spent += Number(p.points) || 0; } });
+    return { id, name: k.name, group: k.group, xpEarned: earned, xpSpent: spent, level: k.level || 1, title: k.title || '' };
+  });
+  // FIX (v6.3): keep tablet-only kids that the sheet doesn't have yet (was the Add Kid bug)
+  oldKids.forEach(o => {
+    if (!o.pending && o.group) return;   // came from the sheet before; the sheet list wins
+    if (kids.some(k => k.name === o.name && k.group === o.group)) {
+      if (selectedKidId === o.id) selectedKidId = String(kids.find(k => k.name === o.name && k.group === o.group).id);
+      return;                            // sheet has it now, use the sheet copy
+    }
+    let earned = 0, spent = 0;
+    pending.forEach(p => { if (p.name === o.name && p.group === o.group) { if (p.type === 'gem') earned += Number(p.xp) || 0; else if (p.type === 'purchase') spent += Number(p.points) || 0; } });
+    kids.push(Object.assign({}, o, { xpEarned: o.group ? earned : o.xpEarned, xpSpent: o.group ? spent : o.xpSpent }));
+  });
+  saveKids();
+  renderKidSelect();
+  document.querySelectorAll('#kidSelect option').forEach(o => {
+    const k = kids.find(x => x.id === o.value); if (k && k.group) o.textContent = k.name + ' (' + k.group + ')';
+  });
+}
+
+// Downloads the roster/points from the sheet. On success saves a copy on the phone;
+// if offline or it fails, keeps using the saved copy.
+async function fetchSummary() {
+  const st = getSettings(); if (!st.url) { updateBadge('Add the Apps Script URL in Settings'); return; }
+  try {
+    const r = await fetch(st.url + (st.url.includes('?') ? '&' : '?') + 'action=summary&key=' + encodeURIComponent(st.key || ''));
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || 'error');
+    KV.set(SUMMARY_KEY, j); applySummary(j);   // FIX (v6.3): on-device database
+    if (!getQueue().length) KV.set(LASTSYNC_KEY, new Date().toISOString());   // FIX (v6.3): fully synced
+    updateBadge('Synced');
+  } catch (e) { updateBadge('Offline, using saved copy'); }
+}
+
+// _flushing = an upload is running right now, so a second one must not start (that caused the 3rd-save bug).
+// _flushAgain = a new save arrived while uploading, so check the queue once more before finishing.
+let _flushing = false, _flushAgain = false;
+// Sends waiting items to the sheet one at a time, oldest first. The queue is re-read from the phone
+// each time, and an item is removed (by its clientId) only after the sheet answers ok.
+// If a send fails, it stops and leaves the rest for the next retry.
+async function flushQueue() {
+  const st = getSettings(); if (!st.url) return;
+  if (_flushing) { _flushAgain = true; return; }
+  _flushing = true;
+  try {
+    do {
+      _flushAgain = false;
+      while (true) {
+        const q = getQueue(); if (!q.length) break;
+        const item = q[0];
+        try {
+          const r = await fetch(st.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ key: st.key || '' }, item)) });
+          const j = await r.json(); if (!j.ok) throw new Error(j.error || 'error');
+          const now = getQueue(); const i = now.findIndex(x => x.clientId === item.clientId);
+          if (i >= 0) now.splice(i, 1); setQueue(now);
+          // FIX (v6.3): remember this clientId was confirmed (keeps the last 2000)
+          const sent = KV.get(SENT_KEY) || []; sent.push(item.clientId); KV.set(SENT_KEY, sent.slice(-2000));
+        } catch (e) { updateBadge('Saved on phone, will retry'); return; }
+      }
+    } while (_flushAgain);
+    KV.set(LASTSYNC_KEY, new Date().toISOString());   // FIX (v6.3)
+    updateBadge('All saved to sheet');
+  } finally { _flushing = false; }
+}
+// Adds a save to the offline queue with a unique clientId and the leader name, then tries to upload.
+function enqueue(item) {
+  item.clientId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  item.leader = getSettings().leader || '';
+  const q = getQueue(); q.push(item); setQueue(q); flushQueue();
+}
+
+// FIX (v6.3): queue a new kid for the sheet (Apps Script adds a row to the Kids tab).
+// Called by saveNewKid() in Script 1.
+function queueNewKid(kid) {
+  enqueue({ type: 'addkid', name: kid.name, group: kid.group });
+}
+
+// Wrap Add XP: keep the old local behaviour, then queue a GemLog row
+// _origAddXP keeps the original addXPToKid from Script 1. The new version runs it, then queues a
+// GemLog row with the gem counts. Kids without a group (phone-only) are not sent.
+const _origAddXP = addXPToKid;
+addXPToKid = function (amount) {
+  const kid = kids.find(k => k.id === selectedKidId);
+  _origAddXP(amount);
+  if (!kid || !amount) return;
+  if (!kid.group) { updateBadge('This kid is only on this phone (not in the sheet)'); return; }
+  const c = lastCounts || {};
+  enqueue({ type: 'gem', sessionDate: sessionDate(), name: kid.name, group: kid.group,
+    orange: c.Orange || 0, green: c.Green || 0, blue: c.Blue || 0, red: c.Red || 0, diamond: c.Diamond || 0, xp: amount });
+};
+
+// Replace Spend XP: local update + Purchases row
+// Same checks as before, then also queues a Purchases row for the sheet.
+document.getElementById('spendBtn').onclick = () => {
+  if (!selectedKidId) return;
+  const kid = kids.find(k => k.id === selectedKidId);
+  const left = kid.xpEarned - kid.xpSpent;
+  const amount = parseInt(prompt(`How much XP to spend for ${kid.name}? (Left: ${left})`));
+  if (!amount || amount <= 0) return;
+  if (amount > left) { alert('Not enough XP left!'); return; }
+  kid.xpSpent += amount; saveKids(); updateStatsDisplay();
+  if (kid.group) enqueue({ type: 'purchase', date: sessionDate(), name: kid.name, group: kid.group, points: amount, note: 'app' });
+  alert(`Spent ${amount} XP. Left: ${kid.xpEarned - kid.xpSpent}`);
+};
+
+// Settings
+// Settings button: fills the boxes with the saved values and shows/hides the Settings panel.
+document.getElementById('settingsBtn').onclick = () => {
+  const st = getSettings();
+  document.getElementById('setUrl').value = st.url || '';
+  document.getElementById('setKey').value = st.key || '';
+  document.getElementById('setLeader').value = st.leader || '';
+  document.getElementById('setDate').value = st.date || sundayISO();
+  document.getElementById('settingsBox').classList.toggle('hidden');
+};
+// Save settings: stores the values on this phone (the Key stays here, never in the code),
+// then downloads the roster and uploads anything waiting.
+document.getElementById('saveSettingsBtn').onclick = () => {
+  const d = document.getElementById('setDate').value;
+  KV.set(SET_KEY, ({   // FIX (v6.3): on-device database
+    url: document.getElementById('setUrl').value.trim(), key: document.getElementById('setKey').value.trim(),
+    leader: document.getElementById('setLeader').value.trim(), date: d === sundayISO() ? '' : d }));
+  document.getElementById('settingsBox').classList.add('hidden');
+  fetchSummary().then(flushQueue);
+};
+// Sync button: upload waiting saves first, then download the latest roster.
+document.getElementById('syncBtn').onclick = () => {
+  // FIX (v6.3): tell the leader when there's no internet instead of silently doing nothing
+  if (!navigator.onLine) { updateBadge('No internet - everything is saved on this tablet'); return; }
+  updateBadge('Syncing...');
+  flushQueue().then(fetchSummary);
+};
+
+// ===== FIX (v6.3): Export / Import backup file =====
+// Export: downloads KRC_GemTracker_backup_<date>.json with the kid list, the waiting queue, the
+// last sheet roster and settings (the Key is left OUT so the file is safe to keep on a USB/Drive).
+document.getElementById('exportBtn').onclick = () => {
+  const st = Object.assign({}, getSettings()); delete st.key;
+  const data = { app: 'KRC Gem Tracker', version: '6.3', exported: new Date().toISOString(),
+    kids: kids, queue: getQueue(), summary: getSummary(), settings: st, sent: KV.get(SENT_KEY) || [] };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'KRC_GemTracker_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  updateBadge('Backup file saved (check Downloads)');
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+// Import: merges a backup file into this tablet. Counts are matched by clientId, so a count that is
+// already waiting here, or that the sheet already confirmed, is skipped (no double counting).
+document.getElementById('importFile').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!data || data.app !== 'KRC Gem Tracker') throw new Error('not a Gem Tracker backup');
+    const q = getQueue(), sent = new Set((KV.get(SENT_KEY) || []).concat(data.sent || []));
+    let added = 0;
+    (data.queue || []).forEach(it => {
+      if (!it.clientId || sent.has(it.clientId) || q.some(x => x.clientId === it.clientId)) return;
+      q.push(it); added++;
+    });
+    setQueue(q);
+    KV.set(SENT_KEY, Array.from(sent).slice(-2000));
+    // Kids: add any tablet-only kids from the file that aren't here yet (by name + group)
+    let newKids = 0;
+    (data.kids || []).forEach(k => { if (!kids.some(x => x.name === k.name && (x.group || '') === (k.group || ''))) { kids.push(k); newKids++; } });
+    // Use the file's roster only if it is newer than ours
+    const sm = getSummary();
+    if (data.summary && (!sm || new Date(data.summary.updated) > new Date(sm.updated))) KV.set(SUMMARY_KEY, data.summary);
+    saveKids();
+    if (getSummary()) applySummary(getSummary()); else renderKidSelect();
+    updateBadge('Imported: ' + added + ' new saves, ' + newKids + ' new kids');
+    if (navigator.onLine) flushQueue();
+  } catch (err) { alert('Could not import: ' + err.message); }
+};
+
+// ===== Print page =====
+// Print helpers. printKids(): list of {name, group, left, title} from the sheet copy (or from this phone if never synced).
+function printKids() {
+  const sm = getSummary();
+  if (sm && sm.kids) return sm.kids.map(k => ({ name: k.name, group: k.group, left: k.left, title: k.title }));
+  return kids.filter(k => k.group).map(k => ({ name: k.name, group: k.group, left: k.xpEarned - k.xpSpent, title: k.title || '' }));
+}
+// pvNote(): shows how fresh the printed points are
+function pvNote() {
+  const sm = getSummary();
+  document.getElementById('pvNote').textContent = sm ? 'Points as of ' + new Date(sm.updated).toLocaleString() + '. Tap Sync first for the latest.' : 'Not synced with the sheet yet. Showing this phone\'s data.';
+}
+// showGroups(): one paper Treasure Room purchase sheet per group, with blank columns for pencil
+function showGroups() {
+  const all = printKids(), dt = new Date(sessionDate() + 'T12:00').toLocaleDateString();
+  document.getElementById('pvBody').innerHTML = GROUPS.map(g => {
+    const rows = all.filter(k => k.group === g).map(k =>
+      `<tr style="background:${GROUP_COLORS[g]}"><td>${esc(k.name)}</td><td style="text-align:right"><b>${esc(k.left)}</b></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>`).join('');
+    return `<div class="pg"><h2>Kidz Rock Club - ${g} - Treasure Room</h2><div>Date: ${dt} &nbsp; Leader: ____________</div>
+      <table><tr><th>Name</th><th>Points Left</th><th>Spent</th><th>New Left</th><th>Initials</th></tr>${rows}</table></div>`;
+  }).join('');
+  pvNote();
+}
+// showDoor(): the door poster listing everyone's points left and level
+function showDoor() {
+  const all = printKids();
+  const rows = GROUPS.flatMap(g => all.filter(k => k.group === g)).map(k =>
+    `<tr style="background:${GROUP_COLORS[k.group]}"><td>${esc(k.group)}</td><td>${esc(k.name)}</td><td style="text-align:right"><b>${esc(k.left)}</b></td><td>${esc(k.title)}</td></tr>`).join('');
+  document.getElementById('pvBody').innerHTML = `<div class="pg door"><h2>💎 Treasure Room - Points to Spend</h2>
+    <table><tr><th>Group</th><th>Name</th><th>Points Left</th><th>Level</th></tr>${rows}</table></div>`;
+  pvNote();
+}
+// Print view buttons
+document.getElementById('printBtn').onclick = () => { document.body.classList.add('printing'); showGroups(); window.scrollTo(0, 0); };
+document.getElementById('pvGroups').onclick = showGroups;
+document.getElementById('pvDoor').onclick = showDoor;
+document.getElementById('pvPrint').onclick = () => window.print();
+document.getElementById('pvClose').onclick = () => document.body.classList.remove('printing');
+
+// Startup for Script 2: retry uploads when the internet comes back, show the saved roster right away,
+// fetch the latest from the sheet, and every 60 seconds retry if anything is still waiting.
+// FIX (v6.3): all of this now waits for the on-device database (KV.ready); also re-shows "offline" when Wi-Fi drops.
+// Order changed to upload first, then download, so the downloaded roster already includes this tablet's saves.
+KV.ready.then(() => {
+  window.addEventListener('online', () => flushQueue().then(fetchSummary));
+  window.addEventListener('offline', () => updateBadge());
+  if (getSummary()) applySummary(getSummary());
+  updateBadge();
+  if (navigator.onLine) flushQueue().then(fetchSummary);
+  setInterval(() => { if (getQueue().length && navigator.onLine) flushQueue(); }, 60000);
+});
+
+</script>
+</body>
+</html>
