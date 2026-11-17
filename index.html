@@ -636,19 +636,35 @@ document.getElementById('startBtn').onclick = async () => {
 // Copies the current video frame onto the hidden canvas, saves its pixels in
 // capturedImageData, and then counts the gems.
 document.getElementById('captureBtn').onclick = () => {
+  if (_counting) return;
+  const st = document.getElementById('status');
   if (!cvReady) {
-    document.getElementById('status').classList.remove('hidden');
-    document.getElementById('status').textContent = 'OpenCV still loading...';
-    return;
+    st.classList.remove('hidden');
+    st.textContent = 'OpenCV still loading...'; 
+    return; 
   }
   const video = document.getElementById('video');
+  if (!video.videoWidth) {
+    st.classList.remove('hidden');
+    st.textContent = 'Camera not ready yet, try again in a second.';
+    return;
+  }
+  const btn = document.getElementById('captureBtn');
+  _counting = true;
+  btn.disabled = true;
   const canvas = document.getElementById('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-  //Analyze the Image
-  processImage();
+  st.classList.remove('hidden');
+  st.textContent = 'Analyzing ...';
+
+  //Processing Image - FIX: Added timeout
+  setTimeout(() => {
+      try { processImage(); }
+      finally { _counting = false; btn.disabled = false; }
+  }, 50);
 };
 
 //If using phone camera rather than website and opencv
