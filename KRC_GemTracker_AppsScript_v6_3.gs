@@ -46,8 +46,10 @@ function kidId_(name, group) {
 }
 
 function toDate_(s) {
-  if (!s) { var d = new Date(); d.setHours(0,0,0,0); return d; }
-  var p = String(s).split('-'); return new Date(+p[0], +p[1]-1, +p[2]);
+  // FIX - Get current location time zone so that the right date is pushed to the log vs currentdate-1
+  var tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  if (!s) s = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  return Utilities.parseDate(String(s), tz, 'yyyy-MM-dd');
 }
 
 // FIX (v6.3): true if this clientId is already in column col of sheet sh (permanent duplicate check).
