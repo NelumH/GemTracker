@@ -1,22 +1,19 @@
 <!-- ========================================================================== -->
-<!-- KRC Treasure Box Gem Counter and Tracker (version 6.3) -->
+<!-- KRC Treasure Box Gem Counter and Tracker (version 6.3.2) -->
 <!-- One single file: page layout (HTML), look (CSS in the style block), and two script blocks: -->
 <!--   Script 1 = kid list, levels, camera, and OpenCV gem detection -->
 <!--   Script 2 = Google Sheet sync (Apps Script), offline queue, and print pages -->
 <!-- FIX (v6.3): Script 0 (new, runs first) = on-device database (IndexedDB) so the app works 100% offline -->
 <!-- FIX (v6.3): installable app (PWA): manifest.json + sw.js + icons + local opencv.js live next to this file -->
-<!-- Maintenance Knowledge: Uses HTML, CSS, Javascript, and gs for google sheet acess.-->
 <!-- ========================================================================== -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <!--So the code isn't easily searchable online since this uploaded to GitHub-->
+    <!--So the code isn't easily searchable-->
     <meta name="robots" content="noindex, nofollow">
-
     <title>Treasure Box Gem Counting and Tracking - Kids Rock Club</title>
-
     <!-- FIX (v6.3): app install info. manifest.json tells Android "this is an app" (Add to Home screen). -->
     <!-- The apple-* lines do the same for an iPad. theme-color colors the phone's top bar. -->
     <link rel="manifest" href="manifest.json">
@@ -36,7 +33,6 @@
         --gold: #e94560;
         --text: #eee;
       }
-
       * { box-sizing: border-box; }
       body {
         font-family: 'Segoe UI', system-ui, sans-serif;
@@ -46,15 +42,10 @@
         padding: 10px;
         text-align: center;
       }
-
       h1 { color: #ffd700; margin: 10px 0; font-size: 1.8em; }
-      
       h2, h3 { font-size: 1.2em; margin: 15px 0 5px; }
-      
       .container { max-width: 500px; margin: 0 auto; }
-      
       video, canvas { max-width: 100%; border-radius: 12px; border: 3px solid #ffd700; background: #000; }
-      
       button {
         background: #ffd700;
         color: #1a1a2e;
@@ -67,24 +58,20 @@
         cursor: pointer;
         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
       }
-      
       button:active { transform: scale(0.97); }
       button:disabled { opacity: 0.5; }
-      
       .card {
         background: var(--card);
         border-radius: 16px;
         padding: 15px;
         margin: 15px 0;
       }
-      
       .gem-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-size: 1.1em; }
       .gem-color { width: 24px; height: 24px; border-radius: 50%; display: inline-block; margin-right: 8px; border: 2px solid #fff; }
       .total { font-size: 1.6em; color: #ffd700; font-weight: bold; margin-top: 10px; }
       .loading { color: #ffd700; font-style: italic; }
       .instructions { background: #0f3460; padding: 12px; border-radius: 12px; font-size: 0.95em; margin: 10px 0; }
       input, select { padding: 8px; border-radius: 8px; border: none; margin: 4px; font-size: 1em; }
-      
       .level-up {
           background: linear-gradient(45deg, #ffd700, #ff6b6b);
           color: #1a1a2e;
@@ -94,10 +81,8 @@
           margin: 10px 0;
           animation: pulse 1s infinite;
       }
-      
       @keyframes pulse { 50% { transform: scale(1.05); } }
       .hidden { display: none !important; }
-      
       #syncCard input { width: 95%; }
       #syncBadge { font-size: .9em; opacity: .9; }
       #printView { display:none; background:#fff; color:#000; text-align:left; font-family: Arial, sans-serif; }
@@ -109,58 +94,47 @@
       #printView .door td, #printView .door th { font-size: 18pt; border-style: dashed; }
       #printView .blank { width: 16%; }
       #printView tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      
       body.printing { background:#fff; color:#000; }
       body.printing .container { display:none; }
       body.printing #printView { display:block; }
-      
       @media print { .noprint { display:none !important; } body { background:#fff; padding:0; } }
       @page { margin: 0.4in; }
-      
       /* FIX (v6.3): pop-up box (modal) used by Add Kid instead of the browser's prompt() */
       .modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 50; }
       .modal .card { width: 92%; max-width: 420px; text-align: left; }
       .modal input, .modal select { width: 95%; font-size: 1.1em; }
       #backupBox button { padding: 10px 16px; font-size: 1em; }
-
     </style>
 </head>
 
 <body>
   <!-- Everything the leader sees on the main screen lives inside this container -->
   <div class="container">
-
     <h1>⛏️ Kids Rock Club Gem Counter and Tracker 💎</h1>
 
     <!-- Kid Management -->
     <div class="card" id="kidSection">
-
       <h3>Kids</h3><br>
-      <i>Private on this device unless Google Sheet is used - accessible only with the Secret Key.</i><br>
+      <i>Private on this device unless Google Sheet is used - accessible only with Secret Key.</i><br>
       <select id="kidSelect"><option value="">-- Select Kid --</option></select>
       <button id="addKidBtn" type="button">+ Add Kid</button>
-
-      <!-- FIX (v6.3): Add Kid pop-up. Asks for name AND group, so the new kid can be sent to the sheet under the right age group. -->
+      <!-- FIX (v6.3): Add Kid pop-up. Asks for name AND group, so the new kid can be sent to the sheet. -->
       <div id="addKidModal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="card">
           <h3>Add a Kid</h3>
-          <label>First name (and last initial if more than one kid shares the same name):<br><input id="newKidName" autocomplete="off"></label><br>
+          <label>First name (and last initial if two kids share a name):<br><input id="newKidName" autocomplete="off"></label><br>
           <label>Group:<br>
             <select id="newKidGroup">
               <option value="Pebbles">Pebbles (PreK)</option>
               <option value="Granites">Granites (K-1st)</option>
               <option value="Quartz">Quartz (2nd-3rd)</option>
               <option value="Diamonds">Diamonds (4th-5th)</option>
-            </select>
-          </label>
-
+            </select></label>
           <div id="newKidMsg" style="color:#ff8080;min-height:1.2em"></div>
           <button id="newKidSave" type="button">Save Kid</button>
           <button id="newKidCancel" type="button" style="background:#888">Cancel</button>
         </div>
       </div>
-
-      <!-- Displays the current stats for the selected kid: Miner Level, XP Earned, XP Spent, and Remaining spendable XP-->
       <div id="kidStats" class="hidden">
         <div class="stat-row"><span>Level:</span> <strong id="statLevel">1</strong></div>
         <div class="stat-row"><span>XP Earned:</span> <strong id="statEarned">0</strong></div>
@@ -179,7 +153,6 @@
       <button id="syncBtn">🔄 Sync now</button>
       <button id="printBtn">🖨️ Print</button>
       <button id="settingsBtn">⚙️ Settings</button>
-
       <!-- FIX (v6.3): offline backup file. Export saves everything on this tablet to a .json file; -->
       <!-- Import reads one back (merges, never double counts). -->
       <div id="backupBox">
@@ -187,17 +160,14 @@
         <button id="importBtn" type="button">📂 Import backup</button>
         <input type="file" id="importFile" accept="application/json,.json" class="hidden">
       </div>
-
-      <!-- Opens the Settings box so that it can be linked to the Google Sheet. Only those with the Secret Key can successfully link to the Google Sheet-->
       <div id="settingsBox" class="hidden" style="text-align:left">
-        <label>Apps Script web app URL:<br><input id="setUrl" placeholder="https://script.google.com/macros/s/AKfycbw36VKTMvcVgJBdwFxX9A3io0MsCSlyUS4LzACnicQ7Qhdx7UzfZoXVEq84I7-lZYlu/exec"></label><br>
+        <label>Apps Script web app URL:<br><input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec"></label><br>
         <label>Key (Mandatory for syncing):<br><input id="setKey"></label><br>
         <label>Leader name:<br><input id="setLeader"></label><br>
         <label>Session date:<br><input id="setDate" type="date"></label><br>
         <button id="saveSettingsBtn">Save settings</button>
       </div>
     </div>
-
     <!-- Instructions shown to leaders above the camera -->
     <p class="instructions">
       Select a kid, then capture the treasure using the black felt lined bin. Points become XP. Level 
@@ -209,12 +179,9 @@
     <!-- Live camera preview (playsinline keeps iPhones from going full screen) -->
     <video id="video" autoplay playsinline muted></video>
     <br>
-
     <!--Buttons for Camera Capture-->
     <button id="startBtn">Start Camera</button>
-
-    <!-- Capture & Count is super slow may need to add a "working" prompt-->
-    <button id="captureBtn" disabled>📸 Capture & Count</button>
+    <button id="captureBtn" disabled>📸 Capture & Count</button> <small style="opacity:.6">v6.3.2</small>
     <button id="retryBtn" class="hidden">🔄 New Photo</button>
     <p style="margin:10px 0; font-size:0.9em;">Or take a photo with your normal camera app and upload it:</p>
     <input type="file" id="fileInput" accept="image/*" capture="environment" style="margin:8px;">
@@ -223,7 +190,7 @@
     <canvas id="canvas" class="hidden"></canvas>
     <canvas id="outputCanvas" class="hidden" style="max-width:100%; border-radius:12px; margin-top:10px;"></canvas>
 
-    <!--Camera OpenCV code can be slow to open (how to make this faster?)-->
+    <!--Camera OpenCV code can be slow to open-->
     <div id="status" class="loading hidden">Loading OpenCV... (first time may take a few seconds)</div>
 
     <!-- Results card: one row per gem color with -/+ buttons, the total, and the Add XP button -->
@@ -242,7 +209,7 @@
     <div class="sliders card hidden" id="controls">
       <h3>Fine-tune</h3>
       <label>Min gem size (pixels): <input type="range" id="minArea" min="50" max="2000" value="200"></label>
-      <label>Sensitivity: <input type="range" id="sensitivity" min="40" max="100" value="60"></label>
+      <label>Sensitivity: <input type="range" id="sensitivity" min="20" max="100" value="60"></label>
       <button id="reprocessBtn">Re-count</button>
     </div>
   </div>
@@ -263,8 +230,8 @@
 <!--Camera Open CV code from openvc.org-->
 <!-- opencv.js is big (~8 MB) and loads in the background (async). When it finishes, onOpenCvReady() runs -->
 <!-- FIX (v6.3): opencv.js now loads from the same folder (no internet needed). The service worker keeps a copy. -->
+<!-- Old CDN line: <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script> -->
 <script async src="opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
-
 <script>
 // ==========================================================================
 // FIX (v6.3) SCRIPT 0: on-device database (IndexedDB) + install helper
@@ -276,12 +243,10 @@
 // ==========================================================================
 const KV = (function () {
   const DB_NAME = 'krcGemTracker', STORE = 'kv';
-
   // These are the old localStorage drawer names; they become keys in the database
   const KEYS = ['miningClubKids_v1', 'krcSettings_v6', 'krcQueue_v6', 'krcSummary_v6', 'krcLastSync_v6', 'krcSent_v6'];
   const mem = {};       // in-memory copy (fast reads)
   let db = null;        // the open database (null if IndexedDB is not available)
-  
   // Open (or create) the database. Output: a Promise for the db, or null if it fails.
   function open() {
     return new Promise(res => {
@@ -293,7 +258,6 @@ const KV = (function () {
       } catch (e) { res(null); }
     });
   }
-  
   // Read every saved key into memory
   function readAll() {
     return new Promise(res => {
@@ -303,24 +267,20 @@ const KV = (function () {
       rq.onerror = () => res();
     });
   }
-  
   // Write one key to the database (background). Falls back to localStorage if IndexedDB is missing.
   function persist(k, v) {
     if (!db) { try { localStorage.setItem(k, v == null ? '' : JSON.stringify(v)); } catch (e) {} return; }
     try { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(v, k); } catch (e) { console.warn('save failed', e); }
   }
-  
   // ready: a Promise that finishes after the database is open, loaded and migrated.
   const ready = (async () => {
     db = await open();
     if (db) await readAll();
-  
     // Migration: copy old localStorage values that are not in the database yet
     KEYS.forEach(k => {
       if (mem[k] !== undefined) return;
       try { const raw = localStorage.getItem(k); if (raw) { mem[k] = JSON.parse(raw); persist(k, mem[k]); } } catch (e) {}
     });
-  
     // Ask the tablet to keep this data even when storage is low (Chrome usually says yes for installed apps)
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
   })();
@@ -337,8 +297,6 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW failed', e)));
 }
 </script>
-
-
 <script>
 // ==========================================================================
 // SCRIPT 1: kids, levels, camera, and gem detection
@@ -414,6 +372,35 @@ function calculateLevel(xp, kid) {
 // Input: level number and kid. Output: the title text, e.g. "Ore Spotter" ("" if not found).
 function levelTitle(level, kid) { const L = TIER_LEVELS[tierFor(kid)]; return (L[level - 1] || [0, ''])[1]; }
 
+// NOTE: everything between BEGIN/END OLD CODE is commented out, so the browser ignores it.
+//BEGIN OLD CODE
+//let kids = [];
+//let selectedKidId = null;
+//let lastTotalXP = 0;
+//let cvReady = false;
+//let stream = null;
+//let capturedImageData = null;
+//
+//function loadKids() {
+//  const raw = localStorage.getItem(STORAGE_KEY);
+//  kids = raw ? JSON.parse(raw) : [];
+//  renderKidSelect();
+//}
+//
+//function saveKids() {
+//  localStorage.setItem(STORAGE_KEY, JSON.stringify(kids));
+//}
+//
+//function calculateLevel(xp) {
+//  let level = 1;
+//  for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {
+//    if (xp >= LEVEL_THRESHOLDS[i]) level = i + 1;
+//    else break;
+//  }
+//  return Math.min(level, LEVEL_THRESHOLDS.length);
+//}
+//END OLD CODE
+
 // FIX (v6.2): these core variables and loadKids()/saveKids() were missing (only the commented-out
 // copies above existed), which stopped the app at startup. Restored from the old block.
 // kids = the kid list; selectedKidId = kid picked in the drop-down; lastTotalXP = total from the last count;
@@ -481,7 +468,16 @@ function updateStatsDisplay() {
 // the app opens or syncs) replaced the whole list with the sheet roster and the new kid vanished.
 // Now: the pop-up asks for name + group, the kid is saved on the tablet with pending:true, an
 // "addkid" item is queued for the sheet, and applySummary keeps pending kids until the sheet has them.
-
+// The old prompt() version is kept below as comments.
+//function addKid() {
+//  const name = prompt('Kid\'s first name (stored only on this device):');
+//  if (!name || !name.trim()) return;
+//  const newKid = { id: Date.now().toString(), name: name.trim(), xpEarned: 0, xpSpent: 0, level: 1 };
+//  kids.push(newKid);
+//  selectedKidId = newKid.id;
+//  saveKids();
+//  renderKidSelect();
+//}
 // Opens the Add Kid pop-up (no prompt(), which some installed/full-screen apps block)
 function addKid() {
   document.getElementById('newKidName').value = '';
@@ -489,7 +485,6 @@ function addKid() {
   document.getElementById('addKidModal').classList.remove('hidden');
   setTimeout(() => document.getElementById('newKidName').focus(), 50);
 }
-
 // Save button in the pop-up. Input: name + group from the pop-up. Output: new kid selected in the list.
 function saveNewKid() {
   const name = document.getElementById('newKidName').value.trim();
@@ -514,11 +509,9 @@ function saveNewKid() {
   saveKids();
   renderKidSelect();
   document.getElementById('addKidModal').classList.add('hidden');
-
   // Script 2 defines queueNewKid; it sends the kid to the sheet when online
   if (typeof queueNewKid === 'function') queueNewKid(newKid);
 }
-
 document.getElementById('newKidSave').onclick = saveNewKid;
 document.getElementById('newKidCancel').onclick = () => document.getElementById('addKidModal').classList.add('hidden');
 document.getElementById('newKidName').addEventListener('keydown', e => { if (e.key === 'Enter') saveNewKid(); });
@@ -542,6 +535,7 @@ function selectKid(id) {
 document.getElementById('addKidBtn').onclick = addKid;
 document.getElementById('kidSelect').onchange = (e) => selectKid(e.target.value);
 
+//Kid spent points ======NOT TESTED YET===============
 // (This handler is replaced later in Script 2 by a version that also sends a Purchases row to the sheet.)
 document.getElementById('spendBtn').onclick = () => {
   if (!selectedKidId) return;
@@ -570,7 +564,6 @@ function addXPToKid(amount) {
   const kid = kids.find(k => k.id === selectedKidId);
   const oldLevel = kid.level;
   kid.xpEarned += amount;
-
   // FIX (v6.2): pass the kid so the right tier scale is used (Pebbles = little-kid scale)
   const newLevel = calculateLevel(kid.xpEarned, kid);
   kid.level = newLevel;
@@ -635,36 +628,30 @@ document.getElementById('startBtn').onclick = async () => {
 //Capture Photo
 // Copies the current video frame onto the hidden canvas, saves its pixels in
 // capturedImageData, and then counts the gems.
+// FIX (v6.3.2): ignore extra taps, check the camera is ready, show "Analyzing..." before the heavy work
+let _counting = false;
 document.getElementById('captureBtn').onclick = () => {
-  if (_counting) return;
   const st = document.getElementById('status');
-  if (!cvReady) {
-    st.classList.remove('hidden');
-    st.textContent = 'OpenCV still loading...'; 
-    return; 
-  }
-  const video = document.getElementById('video');
-  if (!video.videoWidth) {
-    st.classList.remove('hidden');
-    st.textContent = 'Camera not ready yet, try again in a second.';
-    return;
-  }
-  const btn = document.getElementById('captureBtn');
-  _counting = true;
-  btn.disabled = true;
-  const canvas = document.getElementById('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
   st.classList.remove('hidden');
-  st.textContent = 'Analyzing ...';
-
-  //Processing Image - FIX: Added timeout
+  if (_counting) { st.textContent = 'Still counting, please wait...'; return; }
+  if (!cvReady) { st.textContent = 'OpenCV still loading...'; return; }
+  const video = document.getElementById('video');
+  if (!video.videoWidth) { st.textContent = 'Camera not ready yet, try again in a second.'; return; }
+  const btn = document.getElementById('captureBtn');
+  _counting = true; btn.disabled = true;
+  st.textContent = 'Analyzing...';
   setTimeout(() => {
-      try { processImage(); }
-      finally { _counting = false; btn.disabled = false; }
-  }, 50);
+    try {
+      const canvas = document.getElementById('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      capturedImageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      processImage();
+    } catch (e) {
+      st.textContent = 'Error: ' + (e && e.message ? e.message : e);
+    } finally { _counting = false; btn.disabled = false; }
+  }, 60);
 };
 
 //If using phone camera rather than website and opencv
@@ -714,6 +701,7 @@ function processImage() {
   }
 }
 
+
 // ==========================================================================
 // GEM DETECTION (OpenCV). Big picture of the steps in detectGemsCore:
 //  1. Shrink the photo to 640 px wide, smooth it, and convert to HSV (hue = color, saturation = how colorful, value = brightness).
@@ -742,6 +730,7 @@ var GEM_P = {S_COL:70, S_OVER_MAT:40, GB_SPLIT:88, V_COL:30, DIFF_CLEAR:20, PEAK
 // GEM_DRAW: outline color (R,G,B) used when drawing each gem type on the result image
 var GEM_DRAW = {Orange:[255,165,0], Green:[0,200,0], Blue:[0,100,255], Red:[255,0,0], Diamond:[200,230,255]};
 
+//Ugh. Pain in the rear function....Hues and Saturation and Brightness can change the color "seen"
 // Inputs: cv = OpenCV library, srcRGBA = the photo, minArea = smallest blob in pixels,
 // P = settings that override GEM_P. Output: {counts, dets (each gem found), out (picture with outlines),
 // hsv (color copy used by the tap-to-read tool), R, R1 (typical gem radius)}.
@@ -752,7 +741,6 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
   const del = []; 
   const keep = m => (del.push(m), m);
   const ell = k => keep(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(k, k)));
-
   // Step 1: resize to 640 wide, smooth (median blur), convert to HSV
   const W = 640, Hh = Math.round(W * srcRGBA.rows / srcRGBA.cols);
   const rgba = keep(new cv.Mat()); cv.resize(srcRGBA, rgba, new cv.Size(W, Hh), 0, 0, cv.INTER_AREA);
@@ -760,12 +748,10 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
   const bl = keep(new cv.Mat()); cv.medianBlur(rgb, bl, 5);
   const hsv = keep(new cv.Mat()); cv.cvtColor(bl, hsv, cv.COLOR_RGB2HSV);
   const rows = Hh, cols = W, N = rows * cols;
-
   // Copy the H, S and V numbers into plain arrays (faster to loop over)
   const hd = hsv.data, H = new Uint8Array(N), S = new Uint8Array(N), V = new Uint8Array(N);
 
   for (let p = 0; p < N; p++) { H[p] = hd[3*p]; S[p] = hd[3*p+1]; V[p] = hd[3*p+2]; }
-
   // Small helpers: array <-> OpenCV image, median and percentile of a list of numbers
   const fromArr = a => { const m = keep(new cv.Mat(rows, cols, cv.CV_8UC1)); m.data.set(a); return m; };
   const toArr = m => Uint8Array.from(m.data);
@@ -780,7 +766,6 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
                                    const pos = (n - 1) * q / 100, lo = Math.floor(pos), hi = Math.min(n-1, lo+1); 
                                    return a[lo] + (a[hi]-a[lo]) * (pos - lo); 
                                   };
-
   // Local brightness: brightness minus a heavily blurred copy. Sparkly clear gems stand out above their surroundings.
   const Vm = fromArr(V);
   const g = keep(new cv.Mat()); 
@@ -822,7 +807,6 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
       for (let p = 0; p < N; p++) if (MAT[p]) o.push(A[p]); 
       return o; 
     };
- 
   // Step 3: sthr = saturation threshold. A pixel counts as "colored" if it is clearly more colorful than the mat.
   // hcls(h) sorts a hue into 1 = orange, 2 = green, 3 = blue, 4 = red/pink (OpenCV hue runs 0-179)
   const medS = matAny ? median(onMat(S)) : median(S);
@@ -839,7 +823,6 @@ function detectGemsCore(cv, srcRGBA, minArea, P) {
     const cs = new cv.MatVector(), hi = new cv.Mat(); 
     cv.findContours(m, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     const out = keep(cv.Mat.zeros(rows, cols, cv.CV_8UC1));
- 
     //Draw the contours around each gem found (helps to see how the app is counting)
     for (let i = 0; i < cs.size(); i++) { 
             const c = cs.get(i); 
@@ -940,7 +923,6 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
   
   // RS = a scaled radius used by v5 separation rules
   const RS = P.RS_K ? P.RS_K * R : R;
- 
   // Step 6 (v5 only, when P.BASK is on): large blue areas touching the photo edge are the basket, not gems
   let BASK = null;
   if (P.BASK) { 
@@ -1156,7 +1138,6 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
         dnM.data.set(dn);
         cv.watershed(dnM, markers); 
         const WS = markers.data32S;
-
         // ASSIGN: pixels between two gems that should be apart go to whichever center is closer
         if (P.ASSIGN) for (const [i, j] of cut) {
           const gi = glist.findIndex(m => m.includes(i)) + 2, gj = glist.findIndex(m => m.includes(j)) + 2; 
@@ -1186,7 +1167,6 @@ const gthr = Math.max(P.GRAD_MIN, P.GRAD_K * gm);
 
         return outR;
       }
-
   // Run split() on each color mask and collect every piece as a region {nm = color, r = mask, a = area}
   const sumA = r => { let s = 0; for (let p = 0; p < N; p++) s += r[p]; return s; };
   let regs = [];
@@ -1526,7 +1506,7 @@ if ('Notification' in window && Notification.permission === 'default') {
 
 // Paste your Apps Script /exec link between the quotes. Never put the Key here; it stays on each phone.
 // DEFAULT_URL: the web app link. Safe to put in public code because it does nothing without the Key.
-const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbw36VKTMvcVgJBdwFxX9A3io0MsCSlyUS4LzACnicQ7Qhdx7UzfZoXVEq84I7-lZYlu/exec';
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwa5XoeGrPwh1y-98JIPzTGllwZFvlnTelpr7PWYKuMU1kOB4VQnXC9ZVVdg-N44fM/exec';
 // localStorage drawer names: settings (url, key, leader, date), the offline queue, and the last roster from the sheet
 const SET_KEY = 'krcSettings_v6', QUEUE_KEY = 'krcQueue_v6', SUMMARY_KEY = 'krcSummary_v6';
 // FIX (v6.3): LASTSYNC_KEY = time of last good sync; SENT_KEY = clientIds the sheet already confirmed
@@ -1744,7 +1724,7 @@ document.getElementById('syncBtn').onclick = () => {
 // last sheet roster and settings (the Key is left OUT so the file is safe to keep on a USB/Drive).
 document.getElementById('exportBtn').onclick = () => {
   const st = Object.assign({}, getSettings()); delete st.key;
-  const data = { app: 'KRC Gem Tracker', version: '6.3', exported: new Date().toISOString(),
+  const data = { app: 'KRC Gem Tracker', version: '6.3.2', exported: new Date().toISOString(),
     kids: kids, queue: getQueue(), summary: getSummary(), settings: st, sent: KV.get(SENT_KEY) || [] };
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
